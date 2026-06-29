@@ -41,11 +41,14 @@ describe('M2 progression: xp pickup → level → draft → card', () => {
     sim.advance(FIXED_DT);
     expect(sim.ctx.state.draft.active).toBe(true);
 
-    const opt = sim.ctx.state.draft.options[0]!;
+    const idx = sim.ctx.state.draft.options.findIndex((o) => o.card.kind === 'term');
+    const opt = sim.ctx.state.draft.options[idx]!;
+    const card = opt.card;
+    if (card.kind !== 'term') throw new Error('expected a term card in draft');
     expect(totalStats(sim)).toBe(0);
-    sim.pickDraft(0);
+    sim.pickDraft(idx);
 
-    expect(sim.stats.get(opt.card.stat)).toBeCloseTo(opt.amount);
+    expect(sim.stats.get(card.stat)).toBeCloseTo(opt.amount);
     expect(totalStats(sim)).toBeGreaterThan(0);
     expect(sim.ctx.state.draft.active).toBe(false);
   });

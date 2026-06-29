@@ -32,6 +32,25 @@ export const BALANCE = {
     magnetSpeed: 460,
   },
 
+  /** 绝技：按内部冷却自动释放（M3）。词条 伤害/范围/冷却 会再叠加。 */
+  abilities: {
+    /** 火油弹：朝最近敌人投掷，落点范围爆炸 + 施加焚烧。 */
+    fireBomb: {
+      cooldown: 2.6,
+      radius: 70,
+      damage: 14,
+      /** 命中施加的焚烧层数与持续（秒）。 */
+      burnStacks: 2,
+      burnDuration: 3,
+      /** 选取目标的最大搜索半径。 */
+      targetRange: 360,
+      /** 无目标时的重试间隔。 */
+      retry: 0.25,
+      /** 每级加成。 */
+      perLevel: { damage: 7, radius: 8 },
+    },
+  },
+
   wokou: {
     speed: 70,
     maxHp: 40,

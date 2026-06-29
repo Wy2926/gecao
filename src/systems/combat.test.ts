@@ -3,6 +3,7 @@ import { createWorld, createQueries } from '@/ecs/world';
 import { GameEventBus } from '@/core/event-bus';
 import { RngStreams } from '@/core/rng';
 import { createGameState } from '@/game/state';
+import { StatSheet } from '@/game/stats';
 import type { SimContext } from './types';
 import type { Entity } from '@/ecs/components';
 import { AutoAttackSystem } from './auto-attack';
@@ -18,6 +19,7 @@ function makeCtx(): SimContext {
     bus: new GameEventBus(),
     rng: new RngStreams(1),
     state: createGameState(),
+    stats: new StatSheet(),
     arena: { halfWidth: 1000, halfHeight: 1000 },
     elapsed: 0,
   };

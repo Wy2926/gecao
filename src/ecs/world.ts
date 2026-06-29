@@ -20,6 +20,8 @@ export function createQueries(world: GameWorld) {
     attackers: world.with('attacker', 'transform'),
     player: world.with('player', 'transform', 'health'),
     pickups: world.with('pickup', 'transform'),
+    casters: world.with('caster', 'transform'),
+    afflicted: world.with('status', 'health', 'transform'),
   };
 }
 

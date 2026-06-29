@@ -5,14 +5,16 @@ import { EnemyAISystem } from './enemy-ai';
 import { AutoAttackSystem } from './auto-attack';
 import { TouchDamageSystem } from './touch-damage';
 import { PickupSystem, DraftSystem } from './pickup';
+import { AbilitySystem } from './ability';
+import { StatusSystem } from './status';
 import { HitFlashSystem, DeathSystem, ArenaBoundsSystem } from './lifecycle';
 
 export type { System, SimContext };
 
 /**
  * 系统流水线顺序（09 第八节）。
- * M1：刷怪→AI→拾取(吸附/升级)→移动→横扫→接触伤害→边界→闪白→清理(掉落)→抽卡。
- * 后续插入：Ability/Collision/Status/Augment/RenderSync 等。
+ * 刷怪→AI→拾取(吸附/升级)→移动→横扫→绝技→异常状态→接触伤害→边界→闪白→清理(掉落)→抽卡。
+ * 后续插入：Collision/Augment/RenderSync 等。
  */
 export const SYSTEM_PIPELINE: readonly System[] = [
   SpawnSystem,
@@ -20,6 +22,8 @@ export const SYSTEM_PIPELINE: readonly System[] = [
   PickupSystem,
   MovementSystem,
   AutoAttackSystem,
+  AbilitySystem,
+  StatusSystem,
   TouchDamageSystem,
   ArenaBoundsSystem,
   HitFlashSystem,
