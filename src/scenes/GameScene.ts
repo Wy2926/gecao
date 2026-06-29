@@ -5,7 +5,7 @@ import { ASSETS, getSprite, getCharacter, animKey, type CharacterAsset } from '@
 import { BALANCE } from '@/game/balance';
 import { t } from '@/i18n';
 import type { MessageKey } from '@/i18n/locales/zh-CN';
-import { RARITY_COLOR } from '@/content/cards';
+import { RARITY_COLOR, CARD_POOL } from '@/content/cards';
 import type { Entity } from '@/ecs/components';
 
 const SEED = 0x9e3779b1;
@@ -29,6 +29,12 @@ export class GameScene extends Phaser.Scene {
   private timeText!: Phaser.GameObjects.Text;
   private overlay?: Phaser.GameObjects.Container;
   private draftOverlay?: Phaser.GameObjects.Container;
+
+  /** 绝技冷却图标（按绝技 id 复用，新获得时补建）。 */
+  private abilityIcons = new Map<
+    string,
+    { cd: Phaser.GameObjects.Rectangle; lv: Phaser.GameObjects.Text }
+  >();
 
   private prevHp: number = BALANCE.player.maxHp;
 
@@ -354,6 +360,67 @@ export class GameScene extends Phaser.Scene {
     this.levelText.setText(`${t('hud.level')} ${prog.level}`);
     this.killsText.setText(`${t('hud.kills')} ${this.sim.ctx.state.kills}`);
     this.timeText.setText(`${t('hud.time')} ${Math.floor(this.sim.ctx.elapsed)}s`);
+    this.updateAbilityIcons();
+  }
+
+  /**
+   * 左下角绝技冷却条：每个已拥有绝技一格，遮罩高度表示剩余冷却（满=就绪）。
+   * 绝技通过抽卡动态获得，故按需补建图标。
+   */
+  private updateAbilityIcons(): void {
+    const abilities = this.sim.player.caster?.abilities;
+    if (!abilities) return;
+    const size = 40;
+    const gap = 8;
+    const x0 = 16;
+    const y0 = this.scale.height - 64;
+    const cdr = 1 + this.sim.ctx.stats.get('cdrPct');
+    abilities.forEach((ab, i) => {
+      const cfg = BALANCE.abilities[ab.id as keyof typeof BALANCE.abilities];
+      if (!cfg) return;
+      const x = x0 + i * (size + gap);
+      let icon = this.abilityIcons.get(ab.id);
+      if (!icon) {
+        const card = CARD_POOL.find((c) => c.kind === 'ability' && c.abilityId === ab.id);
+        const color = card?.color ?? 0xff7a33;
+        this.add
+          .rectangle(x, y0, size, size, 0x0c1118, 0.85)
+          .setOrigin(0, 0)
+          .setScrollFactor(0)
+          .setDepth(100)
+          .setStrokeStyle(2, color);
+        this.add
+          .text(
+            x + size / 2,
+            y0 + size / 2,
+            GameScene.wrapCjk(t(`card.${ab.id}.name` as MessageKey), 2),
+            {
+              fontSize: '12px',
+              color: '#f3ecd9',
+              align: 'center',
+            },
+          )
+          .setOrigin(0.5)
+          .setScrollFactor(0)
+          .setDepth(101);
+        const cd = this.add
+          .rectangle(x, y0, size, 0, 0x000000, 0.6)
+          .setOrigin(0, 0)
+          .setScrollFactor(0)
+          .setDepth(102);
+        const lv = this.add
+          .text(x + size - 2, y0 + size - 2, '', { fontSize: '12px', color: '#ffd27a' })
+          .setOrigin(1, 1)
+          .setScrollFactor(0)
+          .setDepth(103);
+        icon = { cd, lv };
+        this.abilityIcons.set(ab.id, icon);
+      }
+      const max = cfg.cooldown / cdr;
+      const frac = Math.max(0, Math.min(1, ab.timer / max));
+      icon.cd.height = size * frac;
+      icon.lv.setText(ab.level > 1 ? `Lv${ab.level}` : '');
+    });
   }
 
   /** 弹出升级三选一选牌界面（读取 draft.options 渲染卡面）。 */
@@ -372,18 +439,21 @@ export class GameScene extends Phaser.Scene {
     );
 
     const n = draft.options.length;
-    const cardW = 200;
+    const cardW = 230;
+    const cardH = 272;
     const gap = 28;
     const totalW = n * cardW + (n - 1) * gap;
     const startX = w / 2 - totalW / 2 + cardW / 2;
     const cy = h * 0.5;
+    const pad = 18;
     draft.options.forEach((opt, i) => {
       const cx = startX + i * (cardW + gap);
+      const top = cy - cardH / 2;
       const color = RARITY_COLOR[opt.rarity];
       const hex = `#${color.toString(16).padStart(6, '0')}`;
       const id = opt.card.id;
       const panel = this.add
-        .rectangle(cx, cy, cardW, 240, 0x121821, 1)
+        .rectangle(cx, cy, cardW, cardH, 0x121821, 1)
         .setScrollFactor(0)
         .setStrokeStyle(3, color)
         .setInteractive({ useHandCursor: true });
@@ -391,36 +461,40 @@ export class GameScene extends Phaser.Scene {
       items.push(
         panel,
         this.add
-          .text(cx, cy - 72, t(`card.${id}.name` as MessageKey), {
-            fontSize: '22px',
+          .text(cx, top + pad, GameScene.wrapCjk(t(`card.${id}.name` as MessageKey), 8), {
+            fontSize: '21px',
             color: '#f3ecd9',
+            align: 'center',
           })
-          .setOrigin(0.5)
+          .setOrigin(0.5, 0)
           .setScrollFactor(0),
         this.add
-          .text(cx, cy - 38, t(`rarity.${opt.rarity}` as MessageKey), {
+          .text(cx, top + pad + 40, t(`rarity.${opt.rarity}` as MessageKey), {
             fontSize: '14px',
             color: hex,
           })
-          .setOrigin(0.5)
+          .setOrigin(0.5, 0)
           .setScrollFactor(0),
         this.add
           .text(
             cx,
-            cy + 8,
-            t(`card.${id}.desc` as MessageKey, { amount: Math.round(opt.amount * 100) }),
+            cy + 6,
+            GameScene.wrapCjk(
+              t(`card.${id}.desc` as MessageKey, { amount: Math.round(opt.amount * 100) }),
+              11,
+            ),
             {
-              fontSize: '16px',
+              fontSize: '15px',
               color: '#c8d2de',
               align: 'center',
-              wordWrap: { width: cardW - 24 },
+              lineSpacing: 4,
             },
           )
           .setOrigin(0.5)
           .setScrollFactor(0),
         this.add
-          .text(cx, cy + 96, String(i + 1), { fontSize: '18px', color: '#8b97a5' })
-          .setOrigin(0.5)
+          .text(cx, cy + cardH / 2 - pad, String(i + 1), { fontSize: '18px', color: '#8b97a5' })
+          .setOrigin(0.5, 1)
           .setScrollFactor(0),
       );
     });
@@ -450,6 +524,29 @@ export class GameScene extends Phaser.Scene {
   private hideDraft(): void {
     this.draftOverlay?.destroy(true);
     this.draftOverlay = undefined;
+  }
+
+  /**
+   * 中日韩文本无空格，Phaser 的 wordWrap 不会断行 → 长描述会溢出卡框。
+   * 这里按「每行最多 maxChars 个字符」手动断行（标点不另起一行更自然）。
+   */
+  private static wrapCjk(text: string, maxChars: number): string {
+    const lines: string[] = [];
+    let line = '';
+    for (const ch of text) {
+      if (ch === '\n') {
+        lines.push(line);
+        line = '';
+        continue;
+      }
+      line += ch;
+      if (line.length >= maxChars) {
+        lines.push(line);
+        line = '';
+      }
+    }
+    if (line) lines.push(line);
+    return lines.join('\n');
   }
 
   /** 选择第 i 张卡：应用词条并关闭选牌（如仍有待处理升级，下一帧重开）。 */
