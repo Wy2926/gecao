@@ -21,8 +21,9 @@
 | 包管理 | `pnpm`（或 npm） | 锁定版本，CI 可缓存 |
 | 构建/Dev Server | **Vite** | 秒级热更新，`vite build` 出静态产物，可直接部署 |
 | 语言 | **TypeScript**（`strict: true`） | 全量类型，杜绝 `any` |
-| 引擎 | **Phaser 3**（Arcade Physics） | 2D 渲染 + 输入 + 场景 + 轻量物理；割草不需要刚体，用 Arcade 足够 |
-| 单测 | **Vitest** | 纯逻辑（伤害公式/Stat 管线/状态机）单测，不依赖渲染 |
+| 引擎 | **Phaser 3**（Arcade Physics） | 仅用作**渲染 + 输入 + 场景 + 资源加载**层；逻辑由 ECS 驱动，Phaser 不持有游戏状态 |
+| 实体架构 | **数据导向 ECS**（`miniplex` 为主，热点数据可下沉 `bitECS`/TypedArray） | 见第二节之二；新行为=加 Component+System，与卡引擎数据驱动理念一致 |
+| 单测 | **Vitest** | 纯逻辑（伤害公式/Stat 管线/状态机/ECS System）单测，不依赖渲染 |
 | 代码规范 | **ESLint + Prettier** | 提交前 `lint`；配 pre-commit 钩子（husky + lint-staged） |
 | 部署 | 静态站点（devinapps/Netlify/GitHub Pages） | `dist/` 直接托管 |
 
@@ -47,28 +48,32 @@ gecao/
    │   ├─ classes.ts            #   职业（起手武器/专属主动/被动倾向）
    │   ├─ metaLoadout.ts        #   主动技/觉醒清单（对应 07）
    │   └─ tags.ts               #   技能类别标签枚举（周期/范围/弹幕/光环/召唤/部署/异常/近战/远程/火雷毒）
-   ├─ core/                     # === 与引擎无关的纯逻辑（可单测）===
+   ├─ core/                     # === 与引擎无关的纯逻辑（可单测，不依赖 Phaser/ECS）===
    │   ├─ stats/                #   StatSheet + 乘区管线（对应 04 一节）
    │   ├─ combat/               #   damage.ts 伤害结算、crit、armor
    │   ├─ status/               #   StatusController 异常叠层/爆发
    │   ├─ rng/                  #   可注入种子的随机源（便于测试/复现）
    │   ├─ draft/                #   三选一抽卡（权重/重抽/保底）
-   │   └─ events/               #   GameEventBus（类型安全事件）
-   ├─ entities/                 # === Phaser 实体（GameObject 封装）===
-   │   ├─ Player.ts
-   │   ├─ Enemy.ts
-   │   ├─ Projectile.ts
-   │   ├─ Summon.ts             #   召唤物（随行 AI）
-   │   ├─ Deployable.ts         #   部署物（箭塔/地雷/拒马）
-   │   └─ Pickup.ts             #   经验球/银两/粮草
-   ├─ systems/                  # === 局内系统（每帧/定步长 update）===
+   │   └─ events/               #   GameEventBus（类型安全事件 + 事件队列）
+   ├─ ecs/                      # === ECS 内核 ===
+   │   ├─ world.ts              #   miniplex World 实例 + 原型(archetype)查询缓存
+   │   ├─ components.ts         #   组件定义（纯数据：见第二节之二）
+   │   ├─ queries.ts            #   预声明查询（如 movable / damageable / withAbilities）
+   │   └─ prefabs.ts            #   实体装配工厂：spawnPlayer/spawnEnemy/spawnProjectile…
+   ├─ systems/                  # === ECS 系统（每帧定步长 run(world,dt)）===
+   │   ├─ InputSystem.ts        #   读输入 → 写 Intent 组件
+   │   ├─ MovementSystem.ts     #   位置/速度积分
+   │   ├─ EnemyAISystem.ts      #   敌人/召唤索敌移动
    │   ├─ AbilitySystem.ts      #   绝技自动触发调度 + 索敌
    │   ├─ SpawnDirector.ts      #   时间轴刷怪 + 增援潮 + boss
-   │   ├─ CollisionSystem.ts    #   空间网格碰撞查询
+   │   ├─ CollisionSystem.ts    #   空间网格碰撞查询 → 命中事件
+   │   ├─ DamageSystem.ts       #   消费命中事件→core/combat 结算→派发战斗事件
    │   ├─ StatusSystem.ts       #   异常 tick + 爆发
-   │   ├─ ModifierSystem.ts     #   词条/增益挂载到 StatSheet/事件
+   │   ├─ AugmentSystem.ts      #   监听战斗事件，执行卡引擎触发/效果（见10）
    │   ├─ PickupSystem.ts       #   拾取/吸附/经验升级
-   │   └─ XpLevelSystem.ts      #   军功→升级→触发三选一
+   │   ├─ XpLevelSystem.ts      #   军功→升级→触发三选一
+   │   ├─ LifetimeSystem.ts     #   计时/耐久销毁（弹幕/召唤/部署）
+   │   └─ RenderSyncSystem.ts   #   把 Transform/Sprite 组件同步到 Phaser GameObject
    ├─ scenes/                   # === Phaser 场景（流程）===
    │   ├─ BootScene.ts
    │   ├─ PreloadScene.ts
@@ -85,7 +90,10 @@ gecao/
    └─ types/                    # 全局类型定义
 ```
 
-> **关键分层**：`core/` 完全不 import Phaser，只做数学/状态/事件——这是单测的主体，也是数值正确性的保证。`entities/`、`systems/`、`scenes/` 才依赖 Phaser。
+> **关键分层（三层依赖单向向下）**：
+> 1. `core/`：不 import Phaser、不 import ECS——纯数学/状态/事件，单测主体，数值正确性保证。
+> 2. `ecs/` + `systems/`：依赖 `core/` 与 `miniplex`，**不直接 import Phaser**（仅 `RenderSyncSystem` 经接口桥接到渲染），便于无渲染 headless 跑逻辑/单测。
+> 3. `scenes/` + `ui/`：依赖 Phaser，负责渲染/输入/资源/流程，**不写游戏规则**。
 
 ---
 
@@ -105,17 +113,63 @@ Boot → Preload → Menu ──► Barracks(卫所:装配/解锁) ──► Gam
 ### 2.2 游戏循环（定步长 fixed timestep）
 割草对帧率与可复现性敏感，采用**逻辑定步长 + 渲染插值**：
 - 逻辑以固定 `dt`（如 1/60s）累加器步进，保证不同帧率下数值一致、便于单测与回放。
-- 每个逻辑步依次驱动系统（顺序很重要）：
-  1. `InputSystem`（读输入 → 玩家意图）
+- 每个逻辑步按固定顺序依次 `run(world, dt)` 驱动 ECS 系统（顺序很重要）：
+  1. `InputSystem`（读输入 → 写 Intent 组件）
   2. `SpawnDirector`（按时间轴生成敌人）
-  3. 移动（玩家/敌人 AI/弹幕/召唤）
+  3. `EnemyAISystem` + `MovementSystem`（索敌/位速积分：玩家/敌人/弹幕/召唤）
   4. `AbilitySystem`（到 CD 自动开火 + 索敌）
-  5. `CollisionSystem`（网格查询 → 命中事件）
-  6. `combat.resolveDamage`（结算 → 派发 onHit/onKill/onCrit）
-  7. `StatusSystem`（异常 tick / 爆发）
-  8. `PickupSystem` + `XpLevelSystem`
-  9. 清理（死亡回收对象池、过期实体）
-- 渲染（Phaser 自有 render）只读状态，不改状态。
+  5. `CollisionSystem`（网格查询 → 命中事件入队）
+  6. `DamageSystem`（消费命中事件 → `core/combat` 结算 → 派发 onHit/onKill/onCrit）
+  7. `AugmentSystem`（消费战斗事件队列，执行卡引擎触发/效果；chainDepth/预算截断）
+  8. `StatusSystem`（异常 tick / 爆发）
+  9. `PickupSystem` + `XpLevelSystem`
+  10. `LifetimeSystem` + 清理（死亡/过期实体从 World 移除，回收对应 Phaser GameObject 入池）
+- 最后 `RenderSyncSystem` 把 Transform/Sprite 组件写到 Phaser GameObject；**渲染只读状态，不改状态**（两帧间可插值平滑）。
+- 逻辑不依赖 Phaser，可 **headless 跑一局**（只跳过 RenderSync）用于集成测试与数值回归。
+
+---
+
+## 二之二、实体架构（数据导向 ECS）
+
+> 按已定决策，实体层用**数据导向 ECS**：Entity 只是 id，行为/状态拆成**纯数据组件**，逻辑放进**系统**批处理。新增一种实体/行为 = 组合已有组件 + 加（或复用）系统，不写新的实体类层级。
+
+### 库选型
+- **主库：`miniplex`**（archetypal、对象式组件、TS 友好）。理由：我们的组件含**富对象**（`StatSheet` 乘区表、`StatusController`、绝技运行态），miniplex 直接以对象存组件、查询符合人体工学、与 `core/` 富逻辑无缝衔接；几千实体性能足够。
+- **热点下沉（可选优化）**：若性能分析显示移动/碰撞是瓶颈，把 `Transform/Velocity` 等**高频数值组件**改用 `bitECS`/TypedArray 的 SoA 存储，仅这部分走数据数组，**架构不变**（系统接口不动）。先用 miniplex 起步，按 profiling 再下沉。
+
+### 组件清单（纯数据，节选）
+| 组件 | 字段 | 挂在谁 |
+|---|---|---|
+| `Transform` | x,y,rotation | 所有可见实体 |
+| `Velocity` | vx,vy,speed | 可移动 |
+| `Sprite` | textureKey, gameObjectRef | 需渲染（桥接 Phaser）|
+| `Health` | hp,maxHp,armor | 可受伤 |
+| `Faction` | player/enemy/summon/neutral | 索敌/碰撞过滤 |
+| `Stats` | StatSheet 实例 | 玩家/召唤（携乘区桶）|
+| `StatusBag` | StatusController 实例 | 可被异常的敌人 |
+| `Abilities` | 已装配绝技运行态(独立 CD/等级) | 玩家 |
+| `Augments` | 已获联动/增益声明的运行句柄 | 玩家 |
+| `AIChase` | target, behavior | 敌人/召唤 |
+| `Projectile` | coef,element,pierce,bounce,homing | 弹幕 |
+| `Lifetime` | remainS 或 durability | 弹幕/召唤/部署 |
+| `Deployable` | placeRule,radius | 部署物 |
+| `Pickup` | kind(exp/银两/粮草),value | 掉落物 |
+| `Tags` | Set<Tag> | 携标签的伤害源（供 06 类别增益）|
+
+### 系统与查询
+- 每个系统声明它消费的**查询（archetype）**，如 `MovementSystem` 处理 `{Transform,Velocity}`、`StatusSystem` 处理 `{StatusBag,Health}`。
+- 查询结果由 miniplex 增量维护（实体增删组件即更新归属），系统遍历缓存友好。
+- 系统**无状态、可单测**：输入 world+dt，断言组件变化（headless，无需 Phaser）。
+
+### 与 core / 卡引擎 / Phaser 的边界
+- **core/**：`StatSheet`/`StatusController`/`combat` 是与 ECS 无关的纯对象，被组件**持有**（组合而非继承），保证数值逻辑可独立单测。
+- **卡引擎（10）**：联动/绝技效果作用于"实体+组件"——`applyStatus` 写目标 `StatusBag`、`grantModifier` 改 `Stats`、`spawnProjectile` 用 `prefabs` 装配新实体；`AugmentSystem` 是其执行系统。
+- **Phaser**：仅 `Sprite.gameObjectRef` + `RenderSyncSystem` 一处桥接；销毁实体时回收 GameObject 入对象池。
+
+### 为何满足"灵活通用、适配未来扩展"
+- 新敌人/新弹幕/新部署物 = 新的组件组合（prefab），无需新类层级。
+- 新机制 = 加一个系统或复用卡引擎原语，与"加卡=写数据"统一。
+- 未来联机/回放：world 状态是纯数据，序列化/快照/确定性步进天然友好。
 
 ---
 
@@ -279,15 +333,19 @@ finalDamage = weaponBase
 ### 我推荐的默认决策（如无异议即采用）
 | 决策 | 推荐 | 理由 / 对扩展性的影响 |
 |---|---|---|
-| 实体组织 | **轻量组件式**（实体持有 StatSheet/StatusController/AI 组件），不引入重型 ECS 库 | 贴合 Phaser、复杂度可控；扩展性主要由"声明式卡引擎"承担，不依赖 ECS |
+| 实体组织 | **数据导向 ECS（miniplex 为主）**〔已定〕 | 用户决策；Entity=id + 纯数据组件 + 系统批处理，扩展性/性能上限高，与卡引擎数据驱动统一（详见第二节之二）。热点数据可按需下沉 bitECS/TypedArray |
 | 卡/数值表载体 | **TS 配置对象**（强类型、可引用枚举/标签/原语） | 加卡即写带类型校验的数据；比 JSON 更安全、可被编译器约束，契合"加卡=写数据" |
 | 卡引擎 | **触发/条件/效果/修饰符 四原语 + 注册表**（10 文档） | 这是满足"几十~上百联动可扩展"的核心；已验证全覆盖现有卡 |
 | 事件分发 | **队列 + chainDepth 上限 + 每帧预算** | 支撑连锁联动且不栈溢出/不刷爆性能 |
 | 包管理器 | **pnpm** | 快、省盘、lockfile 严格；无强偏好可换 npm |
 | 游戏循环 | **定步长逻辑 + 渲染插值** | 数值可复现、可单测、便于回放 |
 
-### 需要你拍板的项（影响范围较大）
-1. **是否同意上表的"卡引擎四原语"方案**作为扩展性内核？（这是本次最关键的设计，决定后续上百张卡的工作量。）
-2. **现在是否进入 M0 脚手架编码**（仍是工程初始化，不写玩法逻辑），还是先把 09/10 架构评审定稿再开工？
-3. **是否需要我在 MVP 阶段配置在线静态部署**（GitHub Pages / devinapps），便于你随时在浏览器试玩与反馈手感？
-4. 是否有**未来扩展方向**现在就要预留接口的（如：联机/多人、关卡编辑器、MOD/外部数据热加载、移动端触控）——告诉我，我会在原语集合与数据 schema 上预留。
+### 已定决策（用户拍板）
+- ✅ **卡引擎四原语**作为扩展性内核（用户认可）。
+- ✅ **实体组织 = 数据导向 ECS（miniplex 为主）**（用户选择，见第二节之二）。
+- ✅ **本阶段先评审/定稿 09+10，暂不写代码**。
+
+### 仍待你拍板的项
+1. **是否需要我在 MVP 阶段配置在线静态部署**（GitHub Pages / devinapps），便于你随时在浏览器试玩与反馈手感？
+2. 是否有**未来扩展方向**现在就要预留接口的（如：联机/多人、关卡编辑器、MOD/外部数据热加载、移动端触控）——告诉我，我会在 ECS 组件、原语集合与数据 schema 上预留。
+3. ECS 主库默认选 **miniplex**（理由见第二节之二）；若你更想要纯 SoA 的 `bitECS` 作为主库（极致性能、但富对象需放侧表），告诉我我改设计。

@@ -224,3 +224,4 @@ interface AbilitySpec {
 ## 十、与 09 的关系
 - 本文细化 09 第四节（事件总线）、第六节（标签）、第三节（StatSheet）。
 - 09 仍是总览与分层/里程碑；本文是"扩展性内核"的权威设计。
+- **与 ECS 的衔接（09 第二节之二）**：上文 `Entity` 即 miniplex 实体；效果作用于"实体+组件"——`applyStatus` 写目标 `StatusBag` 组件、`grantModifier` 改 `Stats` 组件、`spawnProjectile/summon/deploy` 通过 `prefabs` 装配新实体、`modifyDraft` 作用于抽卡器。卡引擎的执行载体是 ECS 的 `AugmentSystem`，它消费 `core/events` 的战斗事件队列。
