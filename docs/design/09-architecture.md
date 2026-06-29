@@ -74,7 +74,8 @@ gecao/
    │   ├─ PickupSystem.ts       #   拾取/吸附/经验升级
    │   ├─ XpLevelSystem.ts      #   军功→升级→触发三选一
    │   ├─ LifetimeSystem.ts     #   计时/耐久销毁（弹幕/召唤/部署）
-   │   └─ RenderSyncSystem.ts   #   把 Transform/Sprite 组件同步到 Phaser GameObject
+   │   ├─ RenderSyncSystem.ts   #   把 Transform/Sprite 组件同步到 Phaser GameObject
+   │   └─ PresentationSystem.ts #   订阅战斗事件播放各绝技动画/特效/音效（见第二节之三）
    ├─ scenes/                   # === Phaser 场景（流程）===
    │   ├─ BootScene.ts
    │   ├─ PreloadScene.ts
@@ -178,6 +179,38 @@ Boot → Preload → Menu ──► Barracks(卫所:装配/解锁) ──► Gam
 - 新敌人/新弹幕/新部署物 = 新的组件组合（prefab），无需新类层级。
 - 新机制 = 加一个系统或复用卡引擎原语，与"加卡=写数据"统一。
 - 未来联机/回放：world 状态是纯数据，序列化/快照/确定性步进天然友好。
+
+---
+
+## 二之三、表现层（美术 / 动画 / 特效）——逻辑与表现彻底解耦
+
+> 美术是核心一环，且每个绝技动画各不相同——这通过「**逻辑只说发生了什么，表现层负责怎么演**」实现。ECS/core 只产出事件与状态，**表现层订阅事件播放各自的动画/特效/音效**；逻辑不知道任何视觉细节，所以 headless 测试不受影响、美术可独立迭代替换。
+
+### 每个技能带独立「表现声明」（数据驱动，动画各不相同）
+绝技/效果除逻辑外再挂一份 `PresentationSpec`（与 `onFire` 逻辑并列、互不耦合）：
+```ts
+interface PresentationSpec {
+  castAnim?: AnimKey;        // 角色释放动作（每个绝技不同）
+  vfx?: VfxKey[];            // 释放/飞行/命中特效（序列帧或粒子）
+  projectileAnim?: AnimKey;  // 投射物自身动画
+  hitVfx?: VfxKey;           // 命中特效
+  sfx?: SfxKey[];            // 音效
+  screenShake?: ShakeSpec;   // 屏震/顿帧（打击感）
+  trail?: TrailKey;          // 拖尾
+}
+```
+- 因为每个绝技引用**自己的 `castAnim`/`vfx`/`hitVfx`**，所以「戚家刀横扫」「火油弹爆炸」「连锁雷」可以是**完全不同的动画与特效**。
+- 加新绝技 = 配 `onFire`（逻辑）+ 配 `presentation`（美术 key）；换美术 = 只改资源与 key 映射，不动逻辑。
+
+### 运作方式
+- **AssetRegistry**：`AnimKey/VfxKey/SfxKey` → 图集(atlas)/序列帧(spritesheet)/粒子配置/音频；启动时在 Phaser Animation Manager 预注册每个绝技的帧动画。
+- **PresentationSystem（view 层）**：消费战斗事件队列（`onAbilityCast/onProjectileHit/onStatusBurst/onKill…`），在对应实体的 `Sprite` 上播放 `animKey`、用对象池生成特效实体、播放音效、触发屏震。
+- **分层动画**：角色基础动作（idle/run/受击/死亡）+ 绝技专属释放动画 + 投射物动画 + 异常状态视觉（焚烧/中毒/雷殛各有覆盖特效）互相独立叠加。
+- **性能**：特效走对象池 + 同屏上限；海量敌人/远处做降级（合并/降频/省略次要特效），不影响逻辑帧。
+
+### MVP 与 MOD
+- **MVP**：先用占位美术（简单序列帧/纯色）把「key 体系 + PresentationSystem」管线跑通；后续真美术替换是**零逻辑改动**，只换资源。
+- **MOD**：MOD 可随包附带自己的美术/音频资源并在声明里引用其 key → **MOD 绝技也能有自定义动画与特效**（注意打包体积与资源加载校验）。
 
 ---
 
