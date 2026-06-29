@@ -15,7 +15,6 @@ const SEED = 0x9e3779b1;
 export class GameScene extends Phaser.Scene {
   private sim!: Simulation;
   private input$!: KeyboardInputSource;
-  private restartKey!: Phaser.Input.Keyboard.Key;
 
   private sprites = new Map<Entity, Phaser.GameObjects.Image>();
   private swingGfx!: Phaser.GameObjects.Graphics;
@@ -51,7 +50,9 @@ export class GameScene extends Phaser.Scene {
 
     this.sim = new Simulation({ seed: SEED });
     this.input$ = new KeyboardInputSource(this.input.keyboard!);
-    this.restartKey = this.input.keyboard!.addKey('R');
+    this.input.keyboard!.on('keydown-R', () => {
+      if (this.sim.ctx.state.gameOver) this.restart();
+    });
 
     // 相机：有界 + 跟随玩家 + 死区。
     const cam = this.cameras.main;
@@ -67,7 +68,6 @@ export class GameScene extends Phaser.Scene {
   override update(_time: number, delta: number): void {
     if (this.sim.ctx.state.gameOver) {
       if (!this.overlay) this.showGameOver();
-      if (Phaser.Input.Keyboard.JustDown(this.restartKey)) this.restart();
       return;
     }
 
