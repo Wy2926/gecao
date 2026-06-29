@@ -1,6 +1,6 @@
 /**
  * ECS 组件定义（09 第二节之二）。组件 = 纯数据。
- * M0 仅预埋核心若干组件；随里程碑增补（StatSheet/Status/AbilityRuntime/MovementBehavior…）。
+ * M1 增补战斗所需组件；完整数值表 StatSheet 在 M2 接入。
  */
 
 export interface Vec2 {
@@ -26,15 +26,47 @@ export interface FactionTag {
   faction: Faction;
 }
 
-/** 简单生命值（完整数值表 StatSheet 在 M2 接入）。 */
 export interface Health {
   current: number;
   max: number;
 }
 
-/** 渲染同步信息：逻辑层只存渲染 key，由 RenderSyncSystem 桥接到 Phaser。 */
+/** 圆形碰撞体（M1 用圆做命中/分离判定）。 */
+export interface Collider {
+  radius: number;
+}
+
+/** 追击 AI：朝目标移动，叠加同类分离力防堆叠。 */
+export interface ChaseAI {
+  speed: number;
+}
+
+/** 近战自动攻击（戚家刀横扫）：周期性对前方扇形内敌人造成伤害。 */
+export interface MeleeAttacker {
+  cooldown: number;
+  timer: number;
+  range: number;
+  /** 扇形半角（弧度）。 */
+  halfArc: number;
+  damage: number;
+  knockback: number;
+}
+
+/** 接触伤害（倭寇贴近玩家时按 ICD 持续造成伤害）。 */
+export interface TouchDamage {
+  amount: number;
+  cooldown: number;
+  timer: number;
+}
+
+/** 受击闪白计时（A 档打击感）。 */
+export interface HitFlash {
+  timer: number;
+  duration: number;
+}
+
+/** 渲染同步信息：逻辑层只存渲染 key，由场景桥接到 Phaser。 */
 export interface Renderable {
-  /** AssetRegistry 中的精灵/动画 key（M0 用占位）。 */
   spriteKey: string;
   /** 上一逻辑步的位置，供渲染插值。 */
   prevPosition: Vec2;
@@ -48,7 +80,12 @@ export interface Entity {
   velocity?: Velocity;
   faction?: FactionTag;
   health?: Health;
+  collider?: Collider;
+  ai?: ChaseAI;
+  attacker?: MeleeAttacker;
+  touchDamage?: TouchDamage;
+  hitFlash?: HitFlash;
   renderable?: Renderable;
-  /** 标记为玩家控制实体。 */
   player?: true;
+  enemy?: true;
 }

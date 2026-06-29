@@ -16,8 +16,9 @@ export function createQueries(world: GameWorld) {
   return {
     moving: world.with('transform', 'velocity'),
     renderable: world.with('transform', 'renderable'),
-    enemies: world.with('transform', 'faction'),
-    player: world.with('player', 'transform'),
+    enemies: world.with('enemy', 'transform', 'collider'),
+    attackers: world.with('attacker', 'transform'),
+    player: world.with('player', 'transform', 'health'),
   };
 }
 
