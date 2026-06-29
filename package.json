@@ -1,0 +1,47 @@
+{
+  "name": "gecao",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "明朝抗倭 · 类吸血鬼割草 Roguelite",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepare": "husky"
+  },
+  "dependencies": {
+    "miniplex": "^2.0.0",
+    "phaser": "^3.80.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.9.0",
+    "@types/node": "^20.14.0",
+    "eslint": "^9.9.0",
+    "eslint-config-prettier": "^9.1.0",
+    "husky": "^9.1.4",
+    "lint-staged": "^15.2.9",
+    "prettier": "^3.3.3",
+    "typescript": "^5.5.4",
+    "typescript-eslint": "^8.1.0",
+    "vite": "^5.4.0",
+    "vitest": "^2.0.5"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,json,md}": [
+      "prettier --write"
+    ],
+    "*.{ts,tsx}": [
+      "eslint --fix --max-warnings 0"
+    ]
+  },
+  "packageManager": "pnpm@9.15.1"
+}
