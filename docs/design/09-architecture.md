@@ -159,7 +159,8 @@ Boot → Preload → Menu ──► Barracks(卫所:装配/解锁) ──► Gam
 | `Abilities` | 已装配绝技运行态(独立 CD/等级) | 玩家 |
 | `Augments` | 已获联动/增益声明的运行句柄 | 玩家 |
 | `AIChase` | target, behavior | 敌人/召唤 |
-| `Projectile` | coef,element,pierce,bounce,homing | 弹幕 |
+| `Projectile` | coef,element,pierce,bounce | 弹幕 |
+| `MovementBehavior` | MotionSpec(轨迹声明，见二之四) | 弹幕/绝技实体 |
 | `Lifetime` | remainS 或 durability | 弹幕/召唤/部署 |
 | `Deployable` | placeRule,radius | 部署物 |
 | `Pickup` | kind(exp/银两/粮草),value | 掉落物 |
@@ -211,6 +212,44 @@ interface PresentationSpec {
 ### MVP 与 MOD
 - **MVP**：先用占位美术（简单序列帧/纯色）把「key 体系 + PresentationSystem」管线跑通；后续真美术替换是**零逻辑改动**，只换资源。
 - **MOD**：MOD 可随包附带自己的美术/音频资源并在声明里引用其 key → **MOD 绝技也能有自定义动画与特效**（注意打包体积与资源加载校验）。
+
+---
+
+## 二之四、技能轨迹 / 运动系统（可组合、可复用）
+
+> 轨迹同样千奇百怪（直线/追踪/环绕/回旋/弹跳/链跳/螺旋/波动/抛物/横扫/光束/原地…），处理方式与卡引擎一致：抽象成**一组有限的运动原语 + 数据声明**，任意技能按数据挑选/组合，**复用而非各写一套**。
+
+### MotionSpec：轨迹也是声明式数据
+投射物/绝技产出实体时带一份 `MotionSpec`（存入 `MovementBehavior` 组件，由 `MovementSystem` 按 `kind` 派发纯函数驱动）：
+```ts
+type MotionSpec =
+  | { kind:'straight'; speed:number }                       // 直线弹/横扫子段
+  | { kind:'homing'; turnRate:number; reacquire?:boolean }  // 追踪（自动转向最近敌）
+  | { kind:'orbit'; anchor:'self'|EntityRef; radius; angularSpeed } // 环绕（旋转刀/光环）
+  | { kind:'boomerang'; outDist:number; speed }             // 去回（飞去再返回）
+  | { kind:'ricochet'; bounces:number; off:'enemy'|'wall' } // 弹跳
+  | { kind:'chain'; jumps:number; range }                   // 链跳（连锁闪电式位移）
+  | { kind:'spread'; count:number; arcDeg }                 // 扇形散射（一次多发）
+  | { kind:'wave'; amplitude; frequency }                   // 正弦/波动横移
+  | { kind:'lob'; to:Pos; arcHeight }                       // 抛物落点（AOE 砸落）
+  | { kind:'sweepArc'; aroundSelf:true; arcDeg; radius }    // 近战弧形横扫
+  | { kind:'beam'; length; sweep?:Sweep }                   // 光束/激光（即时线）
+  | { kind:'stationary'; }                                  // 原地（陷阱/图腾/部署物）
+  | { kind:'attached'; to:'owner' };                        // 挂随主体（护盾环绕）
+```
+
+### 组合与时序（覆盖"奇形怪状"轨迹）
+单一原语不够时用**组合子**拼接，仍是纯数据：
+- **序列 `then`**：`{kind:'lob', to:X, then:{kind:'stationary'}}`（飞到落点→变滞留地火）。
+- **叠加 `compose`**：`compose([homing, wave])`（边追踪边蛇形）。
+- **事件转移 `on`**：`{kind:'straight', onHit:{kind:'ricochet',bounces:3}}`、`{kind:'straight', onExpire:{kind:'boomerang'}}`。
+> 例:回旋镖=`straight` + `onExpire:boomerang`;旋刃环绕=`orbit(anchor:self)`;天降流星=`lob` + 落点 `explodeAt`;连锁雷=`chain`。
+
+### 为什么可复用 + 易扩展
+- 运动原语是**纯函数**`(transform, behavior, dt, worldQuery) => 更新位移`，与具体技能无关 → 任何技能引用即用、**0 重复代码**。
+- 轨迹是**封闭可扩展集合**（约十几种）；遇到真正全新轨迹才加 1 个运动原语，加完即被同类复用——与"加卡=写数据"、原语只增不改一致。
+- 与各层解耦:`MovementSystem` 只改 Transform;命中由 `CollisionSystem`+Effect 处理;视觉(拖尾/旋转动画)由 `PresentationSpec`(二之三)负责;数值用注入 RNG+定步长 → 可复现、利于回放/联机/MOD。
+- **MOD**:可用数据组合已注册运动原语造新轨迹技能;唯有全新运动算法需官方补原语（同安全边界）。
 
 ---
 
