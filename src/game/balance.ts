@@ -49,6 +49,20 @@ export const BALANCE = {
       /** 每级加成。 */
       perLevel: { damage: 7, radius: 8 },
     },
+    /** 神火天降：周期性向随机敌人天降数发火球，落点范围爆炸 + 焚烧。 */
+    skyfire: {
+      cooldown: 4,
+      radius: 60,
+      damage: 10,
+      burnStacks: 1,
+      burnDuration: 3,
+      targetRange: 520,
+      retry: 0.25,
+      /** 基础落雷数；每级 +1。 */
+      meteors: 2,
+      /** 每级加成。 */
+      perLevel: { damage: 5, meteors: 1 },
+    },
   },
 
   wokou: {

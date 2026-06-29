@@ -98,6 +98,23 @@ describe('AbilitySystem (火油弹)', () => {
     expect(p.caster!.abilities[0]!.timer).toBeCloseTo(BALANCE.abilities.fireBomb.retry);
   });
 
+  it('skyfire drops multiple meteors scaling with level', () => {
+    const ctx = makeCtx();
+    const p = ctx.world.add({
+      player: true,
+      transform: { position: { x: 0, y: 0 }, rotation: 0 },
+      caster: { abilities: [{ id: 'skyfire', level: 2, timer: 0 }] },
+    });
+    addEnemy(ctx, 40, 0, 10000);
+
+    AbilitySystem.update(ctx, 0.016);
+
+    const cfg = BALANCE.abilities.skyfire;
+    // level 2 → meteors = base + perLevel = 2 + 1 = 3 发，均可命中该唯一敌人。
+    expect(ctx.state.blasts.length).toBe(cfg.meteors + cfg.perLevel.meteors);
+    expect(p.caster!.abilities[0]!.timer).toBeCloseTo(cfg.cooldown);
+  });
+
   it('scales damage with damagePct stat and level', () => {
     const ctx = makeCtx();
     const p = addPlayer(ctx);

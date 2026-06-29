@@ -32,6 +32,8 @@ export const zhCN = {
   'card.drill.desc': '冷却缩减 +{amount}%',
   'card.fireBomb.name': '火油弹',
   'card.fireBomb.desc': '获得/强化绝技：投掷火油弹，落点范围爆炸并点燃敌人',
+  'card.skyfire.name': '神火天降',
+  'card.skyfire.desc': '获得/强化绝技：周期向随机敌人天降数发火球，爆炸点燃',
 } as const;
 
 export type MessageKey = keyof typeof zhCN;
