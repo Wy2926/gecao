@@ -19,6 +19,7 @@ export function createQueries(world: GameWorld) {
     enemies: world.with('enemy', 'transform', 'collider'),
     attackers: world.with('attacker', 'transform'),
     player: world.with('player', 'transform', 'health'),
+    pickups: world.with('pickup', 'transform'),
   };
 }
 

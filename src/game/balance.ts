@@ -15,6 +15,21 @@ export const BALANCE = {
     halfArcDeg: 60,
     damage: 25,
     knockback: 60,
+    /** 基础暴击率与暴击倍率（词条可再叠加暴击率）。 */
+    critChance: 0.05,
+    critMult: 1.6,
+  },
+
+  /** 经验球：倭寇死亡掉落，玩家靠近吸附、接触拾取。 */
+  xp: {
+    /** 每只倭寇掉落的经验值。 */
+    perKill: 1,
+    /** 经验球半径与拾取/吸附半径。 */
+    radius: 7,
+    pickupRadius: 22,
+    magnetRadius: 150,
+    /** 吸附时朝玩家的移动速度。 */
+    magnetSpeed: 460,
   },
 
   wokou: {

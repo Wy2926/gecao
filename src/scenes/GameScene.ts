@@ -4,6 +4,8 @@ import { KeyboardInputSource } from '@/input/keyboard';
 import { ASSETS, getSprite, getCharacter, animKey, type CharacterAsset } from '@/assets/registry';
 import { BALANCE } from '@/game/balance';
 import { t } from '@/i18n';
+import type { MessageKey } from '@/i18n/locales/zh-CN';
+import { RARITY_COLOR } from '@/content/cards';
 import type { Entity } from '@/ecs/components';
 
 const SEED = 0x9e3779b1;
@@ -21,9 +23,12 @@ export class GameScene extends Phaser.Scene {
   private swingGfx!: Phaser.GameObjects.Graphics;
 
   private hpBarFill!: Phaser.GameObjects.Rectangle;
+  private xpBarFill!: Phaser.GameObjects.Rectangle;
+  private levelText!: Phaser.GameObjects.Text;
   private killsText!: Phaser.GameObjects.Text;
   private timeText!: Phaser.GameObjects.Text;
   private overlay?: Phaser.GameObjects.Container;
+  private draftOverlay?: Phaser.GameObjects.Container;
 
   private prevHp: number = BALANCE.player.maxHp;
 
@@ -57,12 +62,17 @@ export class GameScene extends Phaser.Scene {
 
     this.swingGfx = this.add.graphics().setDepth(5);
 
+    this.ensurePlaceholderTextures();
     this.registerAnimations();
     this.sim = new Simulation({ seed: SEED });
     this.input$ = new KeyboardInputSource(this.input.keyboard!);
     this.input.keyboard!.on('keydown-R', () => {
       if (this.sim.ctx.state.gameOver) this.restart();
     });
+    this.input.keyboard!.on('keydown-ONE', () => this.chooseCard(0));
+    this.input.keyboard!.on('keydown-TWO', () => this.chooseCard(1));
+    this.input.keyboard!.on('keydown-THREE', () => this.chooseCard(2));
+    this.input.keyboard!.on('keydown-E', () => this.rerollCards());
 
     // 相机：有界 + 跟随玩家 + 死区。
     const cam = this.cameras.main;
@@ -73,6 +83,21 @@ export class GameScene extends Phaser.Scene {
     cam.setDeadzone(120, 90);
 
     this.buildHud();
+  }
+
+  /** 为无贴图的占位 sprite 资源生成纯色纹理（12-assets：缺图回退占位纯色）。 */
+  private ensurePlaceholderTextures(): void {
+    for (const a of ASSETS) {
+      if (a.kind !== 'sprite' || a.texturePath) continue;
+      if (this.textures.exists(a.key)) continue;
+      const g = this.make.graphics({ x: 0, y: 0 }, false);
+      g.fillStyle(a.placeholderColor, 1);
+      g.fillCircle(a.width / 2, a.height / 2, a.width / 2);
+      g.lineStyle(2, 0xffffff, 0.5);
+      g.strokeCircle(a.width / 2, a.height / 2, a.width / 2 - 1);
+      g.generateTexture(a.key, a.width, a.height);
+      g.destroy();
+    }
   }
 
   /** 为所有角色素材注册帧动画（动作名 → Phaser 动画）。 */
@@ -158,6 +183,13 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    // 升级三选一进行时定格：暂停推进逻辑，弹出选牌。
+    if (this.sim.ctx.state.draft.active) {
+      if (!this.draftOverlay) this.showDraft();
+      return;
+    }
+    if (this.draftOverlay) this.hideDraft();
+
     const intent = this.input$.poll();
     this.sim.setPlayerMove(intent.move.x, intent.move.y);
 
@@ -230,12 +262,14 @@ export class GameScene extends Phaser.Scene {
       });
     }
     for (const h of state.hits) {
-      const spark = this.add.circle(h.x, h.y, 6, 0xffe08a, 0.9).setDepth(6);
+      const spark = this.add
+        .circle(h.x, h.y, h.crit ? 10 : 6, h.crit ? 0xff5a3c : 0xffe08a, 0.95)
+        .setDepth(6);
       this.tweens.add({
         targets: spark,
         alpha: 0,
-        scale: 2,
-        duration: 180,
+        scale: h.crit ? 2.6 : 2,
+        duration: h.crit ? 220 : 180,
         onComplete: () => spark.destroy(),
       });
     }
@@ -255,6 +289,23 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0, 0)
       .setScrollFactor(0)
       .setDepth(101);
+
+    // 经验条（血条下方更细的一条）。
+    this.add
+      .rectangle(pad, pad + 24, 220, 10, 0x000000, 0.5)
+      .setOrigin(0, 0)
+      .setScrollFactor(0)
+      .setDepth(100);
+    this.xpBarFill = this.add
+      .rectangle(pad + 2, pad + 26, 216, 6, 0x4ea3ff)
+      .setOrigin(0, 0)
+      .setScrollFactor(0)
+      .setDepth(101);
+    this.levelText = this.add
+      .text(pad, pad + 38, '', { fontSize: '14px', color: '#f1e6cf' })
+      .setOrigin(0, 0)
+      .setScrollFactor(0)
+      .setDepth(100);
 
     const w = this.scale.width;
     this.killsText = this.add
@@ -282,10 +333,124 @@ export class GameScene extends Phaser.Scene {
 
   private updateHud(): void {
     const hp = this.sim.player.health!;
-    const ratio = Math.max(0, hp.current / hp.max);
-    this.hpBarFill.width = 216 * ratio;
+    this.hpBarFill.width = 216 * Math.max(0, hp.current / hp.max);
+    const prog = this.sim.ctx.state.progression;
+    this.xpBarFill.width = 216 * Math.max(0, Math.min(1, prog.xp / prog.xpToNext));
+    this.levelText.setText(`${t('hud.level')} ${prog.level}`);
     this.killsText.setText(`${t('hud.kills')} ${this.sim.ctx.state.kills}`);
     this.timeText.setText(`${t('hud.time')} ${Math.floor(this.sim.ctx.elapsed)}s`);
+  }
+
+  /** 弹出升级三选一选牌界面（读取 draft.options 渲染卡面）。 */
+  private showDraft(): void {
+    const w = this.scale.width;
+    const h = this.scale.height;
+    const draft = this.sim.ctx.state.draft;
+    const items: Phaser.GameObjects.GameObject[] = [];
+
+    items.push(
+      this.add.rectangle(0, 0, w, h, 0x05080d, 0.72).setOrigin(0).setScrollFactor(0),
+      this.add
+        .text(w / 2, h * 0.18, t('draft.title'), { fontSize: '30px', color: '#ffe9a8' })
+        .setOrigin(0.5)
+        .setScrollFactor(0),
+    );
+
+    const n = draft.options.length;
+    const cardW = 200;
+    const gap = 28;
+    const totalW = n * cardW + (n - 1) * gap;
+    const startX = w / 2 - totalW / 2 + cardW / 2;
+    const cy = h * 0.5;
+    draft.options.forEach((opt, i) => {
+      const cx = startX + i * (cardW + gap);
+      const color = RARITY_COLOR[opt.rarity];
+      const hex = `#${color.toString(16).padStart(6, '0')}`;
+      const id = opt.card.id;
+      const panel = this.add
+        .rectangle(cx, cy, cardW, 240, 0x121821, 1)
+        .setScrollFactor(0)
+        .setStrokeStyle(3, color)
+        .setInteractive({ useHandCursor: true });
+      panel.on('pointerdown', () => this.chooseCard(i));
+      items.push(
+        panel,
+        this.add
+          .text(cx, cy - 72, t(`card.${id}.name` as MessageKey), {
+            fontSize: '22px',
+            color: '#f3ecd9',
+          })
+          .setOrigin(0.5)
+          .setScrollFactor(0),
+        this.add
+          .text(cx, cy - 38, t(`rarity.${opt.rarity}` as MessageKey), {
+            fontSize: '14px',
+            color: hex,
+          })
+          .setOrigin(0.5)
+          .setScrollFactor(0),
+        this.add
+          .text(
+            cx,
+            cy + 8,
+            t(`card.${id}.desc` as MessageKey, { amount: Math.round(opt.amount * 100) }),
+            {
+              fontSize: '16px',
+              color: '#c8d2de',
+              align: 'center',
+              wordWrap: { width: cardW - 24 },
+            },
+          )
+          .setOrigin(0.5)
+          .setScrollFactor(0),
+        this.add
+          .text(cx, cy + 96, String(i + 1), { fontSize: '18px', color: '#8b97a5' })
+          .setOrigin(0.5)
+          .setScrollFactor(0),
+      );
+    });
+
+    items.push(
+      this.add
+        .text(w / 2, h * 0.78, t('draft.hint'), { fontSize: '14px', color: '#9aa6b3' })
+        .setOrigin(0.5)
+        .setScrollFactor(0),
+    );
+    if (draft.rerollsLeft > 0) {
+      const reroll = this.add
+        .text(w / 2, h * 0.84, t('draft.reroll', { n: draft.rerollsLeft }), {
+          fontSize: '15px',
+          color: '#ffd27a',
+        })
+        .setOrigin(0.5)
+        .setScrollFactor(0)
+        .setInteractive({ useHandCursor: true });
+      reroll.on('pointerdown', () => this.rerollCards());
+      items.push(reroll);
+    }
+
+    this.draftOverlay = this.add.container(0, 0, items).setDepth(150);
+  }
+
+  private hideDraft(): void {
+    this.draftOverlay?.destroy(true);
+    this.draftOverlay = undefined;
+  }
+
+  /** 选择第 i 张卡：应用词条并关闭选牌（如仍有待处理升级，下一帧重开）。 */
+  private chooseCard(i: number): void {
+    if (!this.sim.ctx.state.draft.active) return;
+    this.sim.pickDraft(i);
+    this.hideDraft();
+    this.updateHud();
+  }
+
+  /** 免费重抽当前三选一。 */
+  private rerollCards(): void {
+    const draft = this.sim.ctx.state.draft;
+    if (!draft.active || draft.rerollsLeft <= 0) return;
+    this.sim.rerollDraft();
+    this.hideDraft();
   }
 
   private showGameOver(): void {
@@ -307,6 +472,7 @@ export class GameScene extends Phaser.Scene {
   private restart(): void {
     this.overlay?.destroy();
     this.overlay = undefined;
+    this.hideDraft();
     for (const sprite of this.sprites.values()) sprite.destroy();
     this.sprites.clear();
     this.animState.clear();

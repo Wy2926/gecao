@@ -29,7 +29,16 @@ function addPlayer(ctx: SimContext): Entity {
     transform: { position: { x: 0, y: 0 }, rotation: 0 },
     collider: { radius: 16 },
     health: { current: 100, max: 100 },
-    attacker: { cooldown: 0.5, timer: 0, range: 130, halfArc: Math.PI / 3, damage: 25, knockback: 60 },
+    attacker: {
+      cooldown: 0.5,
+      timer: 0,
+      range: 130,
+      halfArc: Math.PI / 3,
+      damage: 25,
+      knockback: 60,
+      critChance: 0,
+      critMult: 1.5,
+    },
   });
 }
 

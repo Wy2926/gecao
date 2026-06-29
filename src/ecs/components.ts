@@ -50,6 +50,18 @@ export interface MeleeAttacker {
   halfArc: number;
   damage: number;
   knockback: number;
+  /** 暴击率 [0,1]（M2 词条注入）。 */
+  critChance: number;
+  /** 暴击伤害倍率。 */
+  critMult: number;
+}
+
+/** 可拾取物（M2：经验球）。玩家靠近吸附、接触拾取。 */
+export interface Pickup {
+  kind: 'xp';
+  amount: number;
+  /** 进入此半径后被玩家吸附。 */
+  magnetRadius: number;
 }
 
 /** 接触伤害（倭寇贴近玩家时按 ICD 持续造成伤害）。 */
@@ -83,6 +95,7 @@ export interface Entity {
   collider?: Collider;
   ai?: ChaseAI;
   attacker?: MeleeAttacker;
+  pickup?: Pickup;
   touchDamage?: TouchDamage;
   hitFlash?: HitFlash;
   renderable?: Renderable;
