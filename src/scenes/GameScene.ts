@@ -17,10 +17,7 @@ export class GameScene extends Phaser.Scene {
   private input$!: KeyboardInputSource;
 
   private sprites = new Map<Entity, Phaser.GameObjects.Image | Phaser.GameObjects.Sprite>();
-  private playerSprite?: Phaser.GameObjects.Sprite;
-  private facingLeft = false;
-  private attackTimer = 0;
-  private currentClip = '';
+  private animState = new Map<Entity, { clip: string; faceLeft: boolean; attack: number }>();
   private swingGfx!: Phaser.GameObjects.Graphics;
 
   private hpBarFill!: Phaser.GameObjects.Rectangle;
@@ -104,37 +101,55 @@ export class GameScene extends Phaser.Scene {
     return sprite;
   }
 
-  /** 按逻辑状态（挥刀/移动/待机）驱动玩家帧动画与朝向翻转。 */
-  private updatePlayerAnim(dt: number): void {
-    const sprite = this.playerSprite;
-    if (!sprite) return;
-    const key = 'player.daopaishou';
-
-    this.attackTimer = Math.max(0, this.attackTimer - dt);
-
-    // 本帧发生横扫 → 触发挥刀动画并朝向命中方向。
+  /**
+   * 数据驱动角色帧动画：所有 CharacterAsset 实体按逻辑状态选动作。
+   * - 玩家本帧横扫 → 播 attack（朝命中方向）；
+   * - 否则速度>1 → walk（循环），静止 → idle（循环）；
+   * - 用 flipX 表达左右朝向。缺失的动作回退到第一段。
+   */
+  private updateAnims(dt: number): void {
     const swings = this.sim.ctx.state.swings;
-    if (swings.length > 0) {
-      const a = swings[swings.length - 1].angle;
-      this.facingLeft = Math.cos(a) < 0;
-      this.attackTimer = 6 / 18; // attack 帧数 / 帧率
-      sprite.play(animKey(key, 'attack')); // 连续横扫则重头播放
-      this.currentClip = 'attack';
-    }
+    const swung = swings.length > 0;
+    const swingAngle = swung ? swings[swings.length - 1].angle : 0;
 
-    const v = this.sim.player.velocity!;
-    const moving = Math.hypot(v.x, v.y) > 1;
-    if (Math.abs(v.x) > 5) this.facingLeft = v.x < 0;
+    for (const e of this.sim.ctx.queries.renderable) {
+      const character = getCharacter(e.renderable.spriteKey);
+      if (!character) continue;
+      const sprite = this.sprites.get(e) as Phaser.GameObjects.Sprite | undefined;
+      if (!sprite) continue;
 
-    if (this.attackTimer <= 0) {
-      const want = moving ? 'walk' : 'idle';
-      if (this.currentClip !== want) {
-        sprite.play(animKey(key, want), true);
-        this.currentClip = want;
+      let st = this.animState.get(e);
+      if (!st) {
+        st = { clip: '', faceLeft: false, attack: 0 };
+        this.animState.set(e, st);
       }
-    }
+      st.attack = Math.max(0, st.attack - dt);
 
-    sprite.setFlipX(this.facingLeft);
+      const clips = character.clips;
+      const has = (name: string): boolean => clips.some((c) => c.name === name);
+      const v = e.velocity;
+      const moving = !!v && Math.hypot(v.x, v.y) > 1;
+      if (v && Math.abs(v.x) > 5) st.faceLeft = v.x < 0;
+
+      if (e.player && swung && has('attack')) {
+        st.faceLeft = Math.cos(swingAngle) < 0;
+        const ac = clips.find((c) => c.name === 'attack')!;
+        st.attack = ac.frameCount / ac.frameRate;
+        sprite.play(animKey(character.key, 'attack')); // 连续横扫则重头播放
+        st.clip = 'attack';
+      }
+
+      if (st.attack <= 0) {
+        let want = moving && has('walk') ? 'walk' : 'idle';
+        if (!has(want)) want = clips[0].name;
+        if (st.clip !== want) {
+          sprite.play(animKey(character.key, want), true);
+          st.clip = want;
+        }
+      }
+
+      sprite.setFlipX(st.faceLeft);
+    }
   }
 
   override update(_time: number, delta: number): void {
@@ -149,7 +164,7 @@ export class GameScene extends Phaser.Scene {
     this.sim.advance(delta / 1000);
 
     this.syncSprites(this.sim.alpha);
-    this.updatePlayerAnim(delta / 1000);
+    this.updateAnims(delta / 1000);
     this.drawCombatFx();
     this.updateHud();
 
@@ -169,7 +184,6 @@ export class GameScene extends Phaser.Scene {
         const character = getCharacter(e.renderable.spriteKey);
         if (character) {
           sprite = this.createCharacterSprite(character);
-          if (e.player) this.playerSprite = sprite as Phaser.GameObjects.Sprite;
         } else {
           const def = getSprite(e.renderable.spriteKey);
           sprite = this.add.image(0, 0, e.renderable.spriteKey).setDepth(0);
@@ -182,7 +196,7 @@ export class GameScene extends Phaser.Scene {
       sprite.x = r.prevPosition.x + (p.x - r.prevPosition.x) * alpha;
       sprite.y = r.prevPosition.y + (p.y - r.prevPosition.y) * alpha;
       // 角色精灵用翻转表达朝向，不旋转身体；其余精灵跟随逻辑旋转。
-      if (e.renderable.spriteKey !== 'player.daopaishou') sprite.rotation = e.transform.rotation;
+      if (!getCharacter(e.renderable.spriteKey)) sprite.rotation = e.transform.rotation;
       const flashing = !!e.hitFlash && e.hitFlash.timer > 0;
       if (flashing) sprite.setTintFill(0xffffff);
       else sprite.clearTint();
@@ -191,6 +205,7 @@ export class GameScene extends Phaser.Scene {
       if (!seen.has(e)) {
         sprite.destroy();
         this.sprites.delete(e);
+        this.animState.delete(e);
       }
     }
   }
@@ -294,10 +309,7 @@ export class GameScene extends Phaser.Scene {
     this.overlay = undefined;
     for (const sprite of this.sprites.values()) sprite.destroy();
     this.sprites.clear();
-    this.playerSprite = undefined;
-    this.currentClip = '';
-    this.attackTimer = 0;
-    this.facingLeft = false;
+    this.animState.clear();
     this.swingGfx.clear();
 
     this.sim = new Simulation({ seed: SEED });
