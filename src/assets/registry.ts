@@ -24,17 +24,71 @@ export interface TileAsset {
   tileSize: number;
 }
 
-export type AssetDef = SpriteAsset | TileAsset;
+/** 一段帧动画片段（单行 strip spritesheet）。 */
+export interface AnimClipDef {
+  /** 动作名（idle/walk/attack…），与逻辑状态对应。 */
+  name: string;
+  /** strip spritesheet 路径（帧横向排列）。 */
+  texturePath: string;
+  frameWidth: number;
+  frameHeight: number;
+  frameCount: number;
+  frameRate: number;
+  /** 是否循环（idle/walk=true，attack=false 播一次）。 */
+  loop: boolean;
+}
+
+/**
+ * 多动作角色素材：逻辑只引用 key，按状态切动作。
+ * 第一段片段为默认（待机）。换素材=改 clips，零逻辑改动。
+ */
+export interface CharacterAsset {
+  kind: 'character';
+  key: string;
+  /** 世界中的绘制尺寸（像素）。 */
+  width: number;
+  height: number;
+  clips: readonly AnimClipDef[];
+}
+
+export type AssetDef = SpriteAsset | TileAsset | CharacterAsset;
 
 /** MVP 资源清单（逐里程碑扩充）。 */
 export const ASSETS: readonly AssetDef[] = [
   {
-    kind: 'sprite',
+    kind: 'character',
     key: 'player.daopaishou',
-    texturePath: 'assets/player-daopaishou.png',
-    placeholderColor: 0xe23b3b,
-    width: 44,
-    height: 44,
+    width: 56,
+    height: 56,
+    clips: [
+      {
+        name: 'idle',
+        texturePath: 'assets/player-idle.png',
+        frameWidth: 256,
+        frameHeight: 256,
+        frameCount: 4,
+        frameRate: 6,
+        loop: true,
+      },
+      {
+        name: 'walk',
+        texturePath: 'assets/player-walk.png',
+        frameWidth: 256,
+        frameHeight: 256,
+        frameCount: 4,
+        frameRate: 10,
+        loop: true,
+      },
+      {
+        name: 'attack',
+        texturePath: 'assets/player-attack.png',
+        frameWidth: 256,
+        frameHeight: 256,
+        frameCount: 6,
+        frameRate: 18,
+        loop: false,
+      },
+    ],
   },
   {
     kind: 'sprite',
@@ -59,4 +113,14 @@ export function getAsset(key: string): AssetDef | undefined {
 export function getSprite(key: string): SpriteAsset | undefined {
   const a = getAsset(key);
   return a && a.kind === 'sprite' ? a : undefined;
+}
+
+export function getCharacter(key: string): CharacterAsset | undefined {
+  const a = getAsset(key);
+  return a && a.kind === 'character' ? a : undefined;
+}
+
+/** Phaser 动画 key：`<角色key>:<动作名>`。 */
+export function animKey(characterKey: string, clipName: string): string {
+  return `${characterKey}:${clipName}`;
 }

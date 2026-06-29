@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { Simulation } from '@/game/simulation';
 import { KeyboardInputSource } from '@/input/keyboard';
-import { ASSETS, getSprite } from '@/assets/registry';
+import { ASSETS, getSprite, getCharacter, animKey, type CharacterAsset } from '@/assets/registry';
 import { BALANCE } from '@/game/balance';
 import { t } from '@/i18n';
 import type { Entity } from '@/ecs/components';
@@ -16,7 +16,11 @@ export class GameScene extends Phaser.Scene {
   private sim!: Simulation;
   private input$!: KeyboardInputSource;
 
-  private sprites = new Map<Entity, Phaser.GameObjects.Image>();
+  private sprites = new Map<Entity, Phaser.GameObjects.Image | Phaser.GameObjects.Sprite>();
+  private playerSprite?: Phaser.GameObjects.Sprite;
+  private facingLeft = false;
+  private attackTimer = 0;
+  private currentClip = '';
   private swingGfx!: Phaser.GameObjects.Graphics;
 
   private hpBarFill!: Phaser.GameObjects.Rectangle;
@@ -34,6 +38,14 @@ export class GameScene extends Phaser.Scene {
     for (const a of ASSETS) {
       if (a.kind === 'sprite' && a.texturePath) this.load.image(a.key, a.texturePath);
       if (a.kind === 'tile') this.load.image(a.key, a.texturePath);
+      if (a.kind === 'character') {
+        for (const clip of a.clips) {
+          this.load.spritesheet(animKey(a.key, clip.name), clip.texturePath, {
+            frameWidth: clip.frameWidth,
+            frameHeight: clip.frameHeight,
+          });
+        }
+      }
     }
   }
 
@@ -48,6 +60,7 @@ export class GameScene extends Phaser.Scene {
 
     this.swingGfx = this.add.graphics().setDepth(5);
 
+    this.registerAnimations();
     this.sim = new Simulation({ seed: SEED });
     this.input$ = new KeyboardInputSource(this.input.keyboard!);
     this.input.keyboard!.on('keydown-R', () => {
@@ -65,6 +78,65 @@ export class GameScene extends Phaser.Scene {
     this.buildHud();
   }
 
+  /** 为所有角色素材注册帧动画（动作名 → Phaser 动画）。 */
+  private registerAnimations(): void {
+    for (const a of ASSETS) {
+      if (a.kind !== 'character') continue;
+      for (const clip of a.clips) {
+        const key = animKey(a.key, clip.name);
+        if (this.anims.exists(key)) continue;
+        this.anims.create({
+          key,
+          frames: this.anims.generateFrameNumbers(key, { start: 0, end: clip.frameCount - 1 }),
+          frameRate: clip.frameRate,
+          repeat: clip.loop ? -1 : 0,
+        });
+      }
+    }
+  }
+
+  /** 创建多动作角色精灵：默认播放第一段（待机）。 */
+  private createCharacterSprite(c: CharacterAsset): Phaser.GameObjects.Sprite {
+    const idle = c.clips[0];
+    const sprite = this.add.sprite(0, 0, animKey(c.key, idle.name)).setDepth(1);
+    sprite.setDisplaySize(c.width, c.height);
+    sprite.play(animKey(c.key, idle.name));
+    return sprite;
+  }
+
+  /** 按逻辑状态（挥刀/移动/待机）驱动玩家帧动画与朝向翻转。 */
+  private updatePlayerAnim(dt: number): void {
+    const sprite = this.playerSprite;
+    if (!sprite) return;
+    const key = 'player.daopaishou';
+
+    this.attackTimer = Math.max(0, this.attackTimer - dt);
+
+    // 本帧发生横扫 → 触发挥刀动画并朝向命中方向。
+    const swings = this.sim.ctx.state.swings;
+    if (swings.length > 0) {
+      const a = swings[swings.length - 1].angle;
+      this.facingLeft = Math.cos(a) < 0;
+      this.attackTimer = 6 / 18; // attack 帧数 / 帧率
+      sprite.play(animKey(key, 'attack')); // 连续横扫则重头播放
+      this.currentClip = 'attack';
+    }
+
+    const v = this.sim.player.velocity!;
+    const moving = Math.hypot(v.x, v.y) > 1;
+    if (Math.abs(v.x) > 5) this.facingLeft = v.x < 0;
+
+    if (this.attackTimer <= 0) {
+      const want = moving ? 'walk' : 'idle';
+      if (this.currentClip !== want) {
+        sprite.play(animKey(key, want), true);
+        this.currentClip = want;
+      }
+    }
+
+    sprite.setFlipX(this.facingLeft);
+  }
+
   override update(_time: number, delta: number): void {
     if (this.sim.ctx.state.gameOver) {
       if (!this.overlay) this.showGameOver();
@@ -77,6 +149,7 @@ export class GameScene extends Phaser.Scene {
     this.sim.advance(delta / 1000);
 
     this.syncSprites(this.sim.alpha);
+    this.updatePlayerAnim(delta / 1000);
     this.drawCombatFx();
     this.updateHud();
 
@@ -93,16 +166,23 @@ export class GameScene extends Phaser.Scene {
       seen.add(e);
       let sprite = this.sprites.get(e);
       if (!sprite) {
-        const def = getSprite(e.renderable.spriteKey);
-        sprite = this.add.image(0, 0, e.renderable.spriteKey).setDepth(0);
-        if (def) sprite.setDisplaySize(def.width, def.height);
+        const character = getCharacter(e.renderable.spriteKey);
+        if (character) {
+          sprite = this.createCharacterSprite(character);
+          if (e.player) this.playerSprite = sprite as Phaser.GameObjects.Sprite;
+        } else {
+          const def = getSprite(e.renderable.spriteKey);
+          sprite = this.add.image(0, 0, e.renderable.spriteKey).setDepth(0);
+          if (def) sprite.setDisplaySize(def.width, def.height);
+        }
         this.sprites.set(e, sprite);
       }
       const r = e.renderable;
       const p = e.transform.position;
       sprite.x = r.prevPosition.x + (p.x - r.prevPosition.x) * alpha;
       sprite.y = r.prevPosition.y + (p.y - r.prevPosition.y) * alpha;
-      sprite.rotation = e.transform.rotation;
+      // 角色精灵用翻转表达朝向，不旋转身体；其余精灵跟随逻辑旋转。
+      if (e.renderable.spriteKey !== 'player.daopaishou') sprite.rotation = e.transform.rotation;
       const flashing = !!e.hitFlash && e.hitFlash.timer > 0;
       if (flashing) sprite.setTintFill(0xffffff);
       else sprite.clearTint();
@@ -214,6 +294,10 @@ export class GameScene extends Phaser.Scene {
     this.overlay = undefined;
     for (const sprite of this.sprites.values()) sprite.destroy();
     this.sprites.clear();
+    this.playerSprite = undefined;
+    this.currentClip = '';
+    this.attackTimer = 0;
+    this.facingLeft = false;
     this.swingGfx.clear();
 
     this.sim = new Simulation({ seed: SEED });
