@@ -25,7 +25,8 @@
 | 实体架构 | **数据导向 ECS**（`miniplex` 为主，热点数据可下沉 `bitECS`/TypedArray） | 见第二节之二；新行为=加 Component+System，与卡引擎数据驱动理念一致 |
 | 单测 | **Vitest** | 纯逻辑（伤害公式/Stat 管线/状态机/ECS System）单测，不依赖渲染 |
 | 代码规范 | **ESLint + Prettier** | 提交前 `lint`；配 pre-commit 钩子（husky + lint-staged） |
-| 部署 | 静态站点（devinapps/Netlify/GitHub Pages） | `dist/` 直接托管 |
+| 部署（MVP，已定） | **静态站点**（devinapps / GitHub Pages），每次 push 出可试玩链接 | `vite build` 产 `dist/` 直接托管；便于随时浏览器试玩反馈手感 |
+| 桌面发行（路线，可Steam） | **Tauri**（首选，体积小）/ Electron（备选）包装同一 web 构建 | 见第十五节；同一代码库上 Steam PC |
 
 ### 1.2 目录结构
 ```
@@ -83,8 +84,15 @@ gecao/
    │   ├─ LevelUpScene.ts       #   三选一卡牌（覆盖在 GameScene 上，暂停逻辑）
    │   ├─ HudScene.ts           #   常驻 HUD（血/护甲/计时/CD/槽位）
    │   └─ ResultScene.ts        #   结算 + meta 货币产出
+   ├─ content/                  # === 内容注册表（内置 + MOD）===
+   │   ├─ registry.ts           #   ContentRegistry：合并内置 TS 内容 + 外部 MOD
+   │   ├─ schema.ts             #   zod schema（CardDef/敌人/关卡），校验外部数据
+   │   └─ modLoader.ts          #   加载/校验/命名空间/启用开关（web上传 / 桌面目录 / Workshop）
+   ├─ platform/                 # === 平台抽象（web / 桌面）===
+   │   ├─ storage.ts            #   StoragePort：web=localStorage/IndexedDB，桌面=文件
+   │   └─ platform.ts           #   运行环境探测 + Steamworks(桌面,可选)接口
    ├─ meta/                     # === 局外存档/养成 ===
-   │   ├─ SaveStore.ts          #   localStorage 持久化（版本化 schema）
+   │   ├─ SaveStore.ts          #   经 StoragePort 持久化（版本化 schema + 迁移）
    │   └─ Progression.ts        #   解锁/属性树/装配方案（阵谱）
    ├─ ui/                       # 复用 UI 组件（卡牌/血条/图标，占位）
    └─ types/                    # 全局类型定义
@@ -314,7 +322,7 @@ finalDamage = weaponBase
 
 | 里程碑 | 交付 | 对应验收 |
 |---|---|---|
-| **M0 脚手架** | Vite+TS+Phaser 跑通空场景、ESLint/Vitest/CI、目录分层 | 工程可启动 |
+| **M0 脚手架** | Vite+TS+Phaser+miniplex 跑通空场景、ESLint/Vitest/CI、目录分层、**配静态部署流水线（每次 push 出可试玩链接）** | 工程可启动 + 在线可访问 |
 | **M1 移动与自动攻击** | 刀牌手 WASD 移动、戚家刀自动横扫、对象池、空间网格碰撞 | 「自动割怪」 |
 | **M2 数值内核** | StatSheet 乘区 + 伤害结算 + 暴击/护甲 + 单测 | 公式正确 |
 | **M3 经验与三选一** | 经验球/升级/LevelUpScene/词条生效 | 「升级三选一即时生效」 |
@@ -323,6 +331,7 @@ finalDamage = weaponBase
 | **M6 刷怪与 Boss** | SpawnDirector 时间轴 + mini-boss + 关末 Boss + 江南水乡图 | 打过 Boss |
 | **M7 主动/觉醒 + meta** | 局外装配、藤牌格挡·反击、破阵斩、结算产 meta 货币 | 「主动技+觉醒可释放」「结算产出」 |
 | **M8 打磨** | HUD/UI 占位、武器进化 1 个（戚家刀法·破阵）、鸳鸯阵 2 位 buff、性能调优 | 手感跑通、达 60fps |
+| **（MVP 后）MOD/桌面** | 开放 ContentRegistry 外部 MOD 载入、Tauri 桌面包装、（评估）Steamworks 接入 | 见第十五节 |
 
 ---
 
@@ -334,18 +343,43 @@ finalDamage = weaponBase
 | 决策 | 推荐 | 理由 / 对扩展性的影响 |
 |---|---|---|
 | 实体组织 | **数据导向 ECS（miniplex 为主）**〔已定〕 | 用户决策；Entity=id + 纯数据组件 + 系统批处理，扩展性/性能上限高，与卡引擎数据驱动统一（详见第二节之二）。热点数据可按需下沉 bitECS/TypedArray |
-| 卡/数值表载体 | **TS 配置对象**（强类型、可引用枚举/标签/原语） | 加卡即写带类型校验的数据；比 JSON 更安全、可被编译器约束，契合"加卡=写数据" |
+| 内置内容载体 | **TS 配置对象**（强类型、可引用枚举/标签/原语） | 加卡即写带类型校验的数据；比 JSON 安全、可被编译器约束 |
+| MOD 内容载体（已定） | **外部 JSON → 运行时校验入 ContentRegistry**（zod schema + 原语注册表校验） | 见第十五节；MOD = 纯数据（只组合已注册原语）→ 安全可沙箱 |
 | 卡引擎 | **触发/条件/效果/修饰符 四原语 + 注册表**（10 文档） | 这是满足"几十~上百联动可扩展"的核心；已验证全覆盖现有卡 |
 | 事件分发 | **队列 + chainDepth 上限 + 每帧预算** | 支撑连锁联动且不栈溢出/不刷爆性能 |
 | 包管理器 | **pnpm** | 快、省盘、lockfile 严格；无强偏好可换 npm |
 | 游戏循环 | **定步长逻辑 + 渲染插值** | 数值可复现、可单测、便于回放 |
 
-### 已定决策（用户拍板）
-- ✅ **卡引擎四原语**作为扩展性内核（用户认可）。
-- ✅ **实体组织 = 数据导向 ECS（miniplex 为主）**（用户选择，见第二节之二）。
+### 已定决策（用户拍板，全部锁定）
+- ✅ **卡引擎四原语**作为扩展性内核。
+- ✅ **实体组织 = 数据导向 ECS，主库 miniplex**（热点可下沉 bitECS/TypedArray），见第二节之二。
+- ✅ **MVP 配在线静态部署**（每次 push 出可试玩链接）。
+- ✅ **预留 MOD 支持**（外部数据载入，见第十五节）；**目标平台含 Steam PC**（Tauri 桌面包装路线）。
 - ✅ **本阶段先评审/定稿 09+10，暂不写代码**。
 
-### 仍待你拍板的项
-1. **是否需要我在 MVP 阶段配置在线静态部署**（GitHub Pages / devinapps），便于你随时在浏览器试玩与反馈手感？
-2. 是否有**未来扩展方向**现在就要预留接口的（如：联机/多人、关卡编辑器、MOD/外部数据热加载、移动端触控）——告诉我，我会在 ECS 组件、原语集合与数据 schema 上预留。
-3. ECS 主库默认选 **miniplex**（理由见第二节之二）；若你更想要纯 SoA 的 `bitECS` 作为主库（极致性能、但富对象需放侧表），告诉我我改设计。
+> 决策已闭环，无待定项。评审通过即可进入 M0。
+
+---
+
+## 十五、MOD 支持与桌面发行（Steam PC）路线
+
+> 这两项现在不实现，但**架构上提前预留**，避免日后大改。核心思想：游戏一切内容都从一个 **ContentRegistry** 取数；内置内容用 TS 写、MOD 用外部 JSON 喂入同一注册表；平台差异（存档/文件/Steam）统一收敛到 `platform/` 抽象层。
+
+### 15.1 MOD = 纯数据，复用四原语（安全可沙箱）
+- 因为卡/绝技/增益已是「触发/条件/效果/修饰符」原语的**数据组合**（见 10 文档），MOD 作者**只需写 JSON 声明**、组合已注册原语，**无需也不能注入任意代码** → 天然安全，无脚本沙箱风险。
+- 同理可 MOD 化的内容：卡牌（增益/联动/绝技）、词条、敌人、关卡时间轴、本地化文本；**不可** MOD 的是原语函数本身（新机制需官方加原语）。
+- 加载流程：`modLoader` 读取来源（web=用户上传/拖入；桌面=`mods/` 目录或 Steam Workshop 目录）→ **zod schema 校验**结构 → 校验每个 `Trigger/Condition/Effect/Modifier.kind` 都在**原语注册表**内（未知则带行号报错拒绝）→ 通过后并入 ContentRegistry。
+- **命名空间**：MOD 内容 id 强制前缀 `modId:`，避免与内置/其他 MOD 冲突；支持「启用/禁用」「加载顺序/覆盖」与「仅内置（纯净局）」开关。
+- **版本兼容**：schema 带 `schemaVersion`；引擎对旧版做迁移或明确拒绝；存档记录启用的 MOD 列表，缺失时给出提示而非崩溃。
+
+### 15.2 与「内置用 TS」并不矛盾
+- 内置内容仍用 TS（编译期类型安全、最佳作者体验）；构建时/启动时把内置内容**归一化**进 ContentRegistry。
+- 引擎只认 ContentRegistry，不关心来源 → 内置与 MOD 走同一条数据通路，保证「MOD 能做的内置也能做」。
+
+### 15.3 桌面发行（Steam PC）
+- **包装**：用 **Tauri**（系统 WebView，安装包小、内存省）包装同一 web 构建为首选；若 Steamworks 集成更顺手则退回 **Electron**（`steamworks.js` 生态成熟）。二者都**复用全部游戏代码**，仅替换 `platform/` 实现。
+- **存档**：`StoragePort` 抽象——web 用 `localStorage`/`IndexedDB`，桌面写应用数据目录文件（并可接 Steam Cloud）。游戏逻辑只依赖接口，不直接碰 `localStorage`。
+- **Steam 能力（评估接入）**：创意工坊（分发 MOD）、成就、云存档；都通过 `platform/platform.ts` 的可选接口暴露，web 端为空实现。
+- **输入/显示**：预留手柄输入映射与全屏/分辨率缩放（Phaser Scale Manager）；UI 文本走 i18n key（便于 Steam 全球化与题材化命名）。
+
+> 落地顺序：先完成 MVP（含在线试玩），MOD 外部载入与 Tauri 打包作为 **MVP 后**里程碑（见第十三节末行），但接口（ContentRegistry / StoragePort / platform）在 M0 即按上述形状预留。
