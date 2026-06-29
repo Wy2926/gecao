@@ -6,9 +6,30 @@ export const zhCN = {
   'hud.kills': '击杀',
   'hud.hp': '生命',
   'hud.time': '时间',
+  'hud.xp': '经验',
   'hud.hint': 'WASD / 方向键移动 · 戚家刀自动横扫',
   'game.over': '阵亡',
   'game.restart': '按 R 重新开始',
+
+  'draft.title': '升级！三选一',
+  'draft.hint': '点击卡牌或按 1 / 2 / 3 选择',
+  'draft.reroll': '重抽（剩 {n}）',
+  'rarity.common': '普通',
+  'rarity.rare': '稀有',
+  'rarity.epic': '史诗',
+
+  'card.whetstone.name': '磨刀石',
+  'card.whetstone.desc': '攻击力 +{amount}%',
+  'card.morale.name': '战意',
+  'card.morale.desc': '攻击速度 +{amount}%',
+  'card.jixiao.name': '纪效新书',
+  'card.jixiao.desc': '攻击范围 +{amount}%',
+  'card.hawkeye.name': '鹰眼',
+  'card.hawkeye.desc': '暴击率 +{amount}%',
+  'card.ironcloth.name': '铁布衫',
+  'card.ironcloth.desc': '最大生命 +{amount}%',
+  'card.drill.name': '操典',
+  'card.drill.desc': '冷却缩减 +{amount}%',
 } as const;
 
 export type MessageKey = keyof typeof zhCN;

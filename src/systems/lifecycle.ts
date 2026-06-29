@@ -1,4 +1,5 @@
 import type { System, SimContext } from './types';
+import { BALANCE } from '@/game/balance';
 
 /** 受击闪白计时衰减（表现由场景读取 hitFlash.timer 着色）。 */
 export const HitFlashSystem: System = {
@@ -12,14 +13,21 @@ export const HitFlashSystem: System = {
   },
 };
 
-/** 清理死亡敌人并累计击杀。 */
+/** 清理死亡敌人、累计击杀、并在原地掉落经验球。 */
 export const DeathSystem: System = {
   name: 'DeathSystem',
   update(ctx: SimContext): void {
-    const dead = ctx.queries.enemies.entities.filter(
-      (e) => e.health && e.health.current <= 0,
-    );
+    const dead = ctx.queries.enemies.entities.filter((e) => e.health && e.health.current <= 0);
+    const xp = BALANCE.xp;
     for (const e of dead) {
+      const p = e.transform!.position;
+      ctx.world.add({
+        pickup: { kind: 'xp', amount: xp.perKill, magnetRadius: xp.magnetRadius },
+        faction: { faction: 'neutral' },
+        transform: { position: { x: p.x, y: p.y }, rotation: 0 },
+        velocity: { x: 0, y: 0 },
+        renderable: { spriteKey: 'pickup.xp', prevPosition: { x: p.x, y: p.y } },
+      });
       ctx.world.remove(e);
       ctx.state.kills++;
     }

@@ -113,6 +113,13 @@ export const ASSETS: readonly AssetDef[] = [
     texturePath: 'assets/ground-watertown.png',
     tileSize: 256,
   },
+  {
+    kind: 'sprite',
+    key: 'pickup.xp',
+    placeholderColor: 0x57e07a,
+    width: 14,
+    height: 14,
+  },
 ];
 
 export function getAsset(key: string): AssetDef | undefined {

@@ -38,6 +38,7 @@ export const AutoAttackSystem: System = {
       );
       a.transform!.rotation = facing;
 
+      const combat = ctx.rng.stream('combat');
       const rangeWithRadius = atk.range;
       for (const e of enemies) {
         const dx = e.transform!.position.x - origin.x;
@@ -47,14 +48,15 @@ export const AutoAttackSystem: System = {
         const ang = Math.atan2(dy, dx);
         if (angleDelta(ang, facing) > atk.halfArc) continue;
 
-        e.health!.current -= atk.damage;
+        const crit = combat.chance(atk.critChance);
+        e.health!.current -= crit ? atk.damage * atk.critMult : atk.damage;
         if (e.hitFlash) e.hitFlash.timer = e.hitFlash.duration;
         // 击退：沿命中方向推开。
         if (dist > 0) {
           e.transform!.position.x += (dx / dist) * atk.knockback;
           e.transform!.position.y += (dy / dist) * atk.knockback;
         }
-        ctx.state.hits.push({ x: e.transform!.position.x, y: e.transform!.position.y });
+        ctx.state.hits.push({ x: e.transform!.position.x, y: e.transform!.position.y, crit });
       }
 
       ctx.state.swings.push({
