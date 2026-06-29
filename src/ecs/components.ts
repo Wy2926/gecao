@@ -3,6 +3,8 @@
  * M1 增补战斗所需组件；完整数值表 StatSheet 在 M2 接入。
  */
 
+import type { StatusController } from '@/game/status';
+
 export interface Vec2 {
   x: number;
   y: number;
@@ -64,6 +66,19 @@ export interface Pickup {
   magnetRadius: number;
 }
 
+/** 一个绝技的运行态（按 ICD 自动释放，可由抽卡升级）。 */
+export interface AbilityState {
+  id: string;
+  level: number;
+  /** 距下次释放的剩余冷却（秒）。 */
+  timer: number;
+}
+
+/** 施法者：持有若干自动释放的绝技（M3）。 */
+export interface Caster {
+  abilities: AbilityState[];
+}
+
 /** 接触伤害（倭寇贴近玩家时按 ICD 持续造成伤害）。 */
 export interface TouchDamage {
   amount: number;
@@ -95,8 +110,10 @@ export interface Entity {
   collider?: Collider;
   ai?: ChaseAI;
   attacker?: MeleeAttacker;
+  caster?: Caster;
   pickup?: Pickup;
   touchDamage?: TouchDamage;
+  status?: StatusController;
   hitFlash?: HitFlash;
   renderable?: Renderable;
   player?: true;

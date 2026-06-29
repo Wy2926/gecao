@@ -30,21 +30,32 @@ export const RARITY_COLOR: Record<Rarity, number> = {
   epic: 0xffb23e,
 };
 
-export type CardKind = 'term';
+export type CardKind = 'term' | 'ability';
 
-/** 一张卡的静态定义。`basePerStack` 为白卡（common）单层增益，稀有度再乘倍率。 */
-export interface CardDef {
+/** 词条卡：抽到即往属性表累加修饰量。 */
+export interface TermCard {
   id: string;
-  kind: CardKind;
+  kind: 'term';
   /** 作用的属性键。 */
   stat: StatKey;
   /** 数值单位：百分比（0.12=+12%）或绝对值（暴击率 0.05）。 */
   unit: 'pct' | 'flat';
-  /** 白卡单层增益。 */
+  /** 白卡（common）单层增益，稀有度再乘倍率。 */
   basePerStack: number;
   /** 卡面主题色（UI 用）。 */
   color: number;
 }
+
+/** 绝技卡：抽到则获得该绝技，重复抽到则升级（稀有度越高、初始等级越高）。 */
+export interface AbilityCard {
+  id: string;
+  kind: 'ability';
+  /** 对应的绝技 id（BALANCE.abilities 键）。 */
+  abilityId: string;
+  color: number;
+}
+
+export type CardDef = TermCard | AbilityCard;
 
 /** MVP 词条池（08 §五：约 6 个托底）。文案走 i18n（card.<id>.name / .desc）。 */
 export const CARD_POOL: readonly CardDef[] = [
@@ -82,6 +93,7 @@ export const CARD_POOL: readonly CardDef[] = [
     color: 0xa05ad0,
   },
   { id: 'drill', kind: 'term', stat: 'cdrPct', unit: 'pct', basePerStack: 0.08, color: 0x5a9ad0 },
+  { id: 'fireBomb', kind: 'ability', abilityId: 'fireBomb', color: 0xff7a33 },
 ] as const;
 
 /** 一个抽卡选项 = 卡 + 本次随机到的稀有度 + 实际数值。 */
@@ -105,7 +117,12 @@ function rollRarity(rng: Rng): Rarity {
   return 'common';
 }
 
+/**
+ * 选项数值：词条为实际增益量（含稀有度倍率）；绝技为本次获得/提升的等级数。
+ * 金卡绝技一次给 2 级，蓝 1 级、白 1 级（以初始强度体现稀有度）。
+ */
 export function optionAmount(card: CardDef, rarity: Rarity): number {
+  if (card.kind === 'ability') return rarity === 'epic' ? 2 : 1;
   return card.basePerStack * RARITY_MULT[rarity];
 }
 

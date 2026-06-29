@@ -231,6 +231,7 @@ export class GameScene extends Phaser.Scene {
       if (!getCharacter(e.renderable.spriteKey)) sprite.rotation = e.transform.rotation;
       const flashing = !!e.hitFlash && e.hitFlash.timer > 0;
       if (flashing) sprite.setTintFill(0xffffff);
+      else if (e.status?.burn) sprite.setTint(0xff7a33);
       else sprite.clearTint();
     }
     for (const [e, sprite] of this.sprites) {
@@ -273,8 +274,22 @@ export class GameScene extends Phaser.Scene {
         onComplete: () => spark.destroy(),
       });
     }
+    for (const b of state.blasts) {
+      const ring = this.add.circle(b.x, b.y, b.radius, 0xff7a33, 0.28).setDepth(4);
+      ring.setStrokeStyle(3, 0xffd24a, 0.9);
+      ring.setScale(0.4);
+      this.tweens.add({
+        targets: ring,
+        alpha: 0,
+        scale: 1,
+        duration: 320,
+        ease: 'Quad.easeOut',
+        onComplete: () => ring.destroy(),
+      });
+    }
     state.swings.length = 0;
     state.hits.length = 0;
+    state.blasts.length = 0;
   }
 
   private buildHud(): void {

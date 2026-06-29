@@ -35,6 +35,7 @@ export class Simulation {
       bus: new GameEventBus(),
       rng: new RngStreams(opts.seed),
       state: createGameState(),
+      stats: this.stats,
       arena: { halfWidth: BALANCE.arena.halfWidth, halfHeight: BALANCE.arena.halfHeight },
       elapsed: 0,
     };
@@ -71,6 +72,7 @@ export class Simulation {
         critChance: s.critChance,
         critMult: s.critMult,
       },
+      caster: { abilities: [] },
       renderable: { spriteKey: 'player.daopaishou', prevPosition: { x: 0, y: 0 } },
     });
   }
@@ -97,8 +99,13 @@ export class Simulation {
     const opt = draft.options[index];
     if (!opt) return;
 
-    this.stats.add(opt.card.stat, opt.amount);
-    this.recomputeStats();
+    const card = opt.card;
+    if (card.kind === 'term') {
+      this.stats.add(card.stat, opt.amount);
+      this.recomputeStats();
+    } else {
+      this.grantAbility(card.abilityId, opt.amount);
+    }
 
     draft.pending = Math.max(0, draft.pending - 1);
     draft.active = false;
@@ -112,6 +119,18 @@ export class Simulation {
     if (!draft.active || draft.rerollsLeft <= 0) return;
     draft.rerollsLeft--;
     draft.options = rollDraft(this.ctx.rng.stream('draft'), 3);
+  }
+
+  /** 抽到绝技卡：已有则升 `levels` 级，否则以该等级获得并初始化冷却。 */
+  private grantAbility(abilityId: string, levels: number): void {
+    const abilities = this.player.caster!.abilities;
+    const existing = abilities.find((a) => a.id === abilityId);
+    if (existing) {
+      existing.level += levels;
+      return;
+    }
+    const cfg = BALANCE.abilities[abilityId as keyof typeof BALANCE.abilities];
+    abilities.push({ id: abilityId, level: levels, timer: cfg.cooldown });
   }
 
   /** 把属性表算成派生值写回玩家组件，并缓存派生移动速度。 */

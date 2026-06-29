@@ -17,6 +17,13 @@ export interface HitFx {
   crit: boolean;
 }
 
+/** 绝技爆炸表现（场景读取后清空）。 */
+export interface BlastFx {
+  x: number;
+  y: number;
+  radius: number;
+}
+
 /** 玩家成长进度（经验/等级）。 */
 export interface Progression {
   level: number;
@@ -46,6 +53,8 @@ export interface GameState {
   swings: SwingFx[];
   /** 本帧命中点，用于火花特效。 */
   hits: HitFx[];
+  /** 本帧绝技爆炸，用于范围特效。 */
+  blasts: BlastFx[];
 }
 
 /** 升到 `level` 级（即从 level 升到 level+1）所需经验。 */
@@ -62,5 +71,6 @@ export function createGameState(): GameState {
     draft: { active: false, options: [], rerollsLeft: 0, pending: 0 },
     swings: [],
     hits: [],
+    blasts: [],
   };
 }

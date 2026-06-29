@@ -30,6 +30,8 @@ export const zhCN = {
   'card.ironcloth.desc': '最大生命 +{amount}%',
   'card.drill.name': '操典',
   'card.drill.desc': '冷却缩减 +{amount}%',
+  'card.fireBomb.name': '火油弹',
+  'card.fireBomb.desc': '获得/强化绝技：投掷火油弹，落点范围爆炸并点燃敌人',
 } as const;
 
 export type MessageKey = keyof typeof zhCN;
