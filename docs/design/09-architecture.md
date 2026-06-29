@@ -455,3 +455,10 @@ finalDamage = weaponBase
 - **输入/显示**：预留手柄输入映射与全屏/分辨率缩放（Phaser Scale Manager）；UI 文本走 i18n key（便于 Steam 全球化与题材化命名）。
 
 > 落地顺序：先完成 MVP（含在线试玩），MOD 外部载入与 Tauri 打包作为 **MVP 后**里程碑（见第十三节末行），但接口（ContentRegistry / StoragePort / platform）在 M0 即按上述形状预留。
+
+---
+
+## 十六、系统完备性（手感 / 界面 / 工程化）
+
+> 对照主流割草经验补齐的系统——打击感、相机、HUD 绑定、音频、暂停/时间缩放、AI 多样性+防堆叠、i18n、输入抽象、种子化多 RNG 流、伤害归因、抽卡进化、难度/诅咒，以及 MVP 后的结算面板/设置/遥测/回放等——详见 **`11-systems-completeness.md`**（分 A 手感必需 / B 现在留接口 / C MVP 后）。
+> 其中 B 档接口（i18n key 化、输入意图层、RNG 子流、`DamageInfo.attribution`、`CardDef` 进化/前置字段）在 **M0 即预埋形状**，避免后期返工。

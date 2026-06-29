@@ -120,6 +120,16 @@ interface CardDef {
 
   // —— 流派核心：质变开关（解锁上限/改写规则）——
   coreEffects?: CoreEffectSpec[];
+
+  // —— 出牌/进化规则（见 09 第九节、11 文档 B5）——
+  requires?: string[];          // 前置：需先拥有这些卡才入池
+  excludes?: string[];          // 互斥：与这些卡不同时出现
+  weightWhen?: ConditionSpec;   // 构筑加权：满足时提高入池权重
+  evolution?: {                 // 进化：满级 + 持有指定卡 → 质变为新卡
+    requires: string[];         //   需同时拥有的被动/绝技
+    atMaxLevel?: boolean;       //   通常需本卡满级
+    into: string;               //   进化后的 CardDef id
+  };
 }
 
 interface TriggerSpec {
@@ -224,4 +234,6 @@ interface AbilitySpec {
 ## 十、与 09 的关系
 - 本文细化 09 第四节（事件总线）、第六节（标签）、第三节（StatSheet）。
 - 09 仍是总览与分层/里程碑；本文是"扩展性内核"的权威设计。
+- **伤害归因**：`DamageInfo` 增 `attribution{ sourceCardId, sourceAbilityId }`，`DamageSystem` 按来源累加进本局 `RunStats`，供结算面板与数值平衡（见 11 文档 B4）。
+- **系统完备性**（手感/UI/音频/输入/i18n/难度等）见 `11-systems-completeness.md`。
 - **与 ECS 的衔接（09 第二节之二）**：上文 `Entity` 即 miniplex 实体；效果作用于"实体+组件"——`applyStatus` 写目标 `StatusBag` 组件、`grantModifier` 改 `Stats` 组件、`spawnProjectile/summon/deploy` 通过 `prefabs` 装配新实体、`modifyDraft` 作用于抽卡器。卡引擎的执行载体是 ECS 的 `AugmentSystem`，它消费 `core/events` 的战斗事件队列。
