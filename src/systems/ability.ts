@@ -1,12 +1,34 @@
 import type { System, SimContext } from './types';
 import type { Entity, AbilityState } from '@/ecs/components';
 import { BALANCE } from '@/game/balance';
-import { applyStatus } from '@/game/status';
+import { applyStatus, incomingDamageFactor, type StatusKind } from '@/game/status';
+
+/** 命中同时施加的状态（焚烧/雷殛…）。 */
+interface HitStatus {
+  kind: StatusKind;
+  stacks: number;
+  duration: number;
+}
+
+/**
+ * 统一的「对敌人造成伤害」入口：乘上雷殛等易伤系数后扣血，可选施加状态，并写命中表现。
+ * 这样雷殛的「受伤 +X%」对所有伤害源（横扫/火爆/雷链）一致生效。
+ */
+function damageEnemy(ctx: SimContext, e: Entity, base: number, status?: HitStatus): void {
+  const factor = e.status ? incomingDamageFactor(e.status) : 1;
+  e.health!.current -= base * factor;
+  if (e.hitFlash) e.hitFlash.timer = e.hitFlash.duration;
+  if (status) {
+    if (!e.status) ctx.world.addComponent(e, 'status', {});
+    applyStatus(e.status!, status.kind, status.stacks, status.duration);
+  }
+  ctx.state.hits.push({ x: e.transform!.position.x, y: e.transform!.position.y, crit: false });
+}
 
 /**
  * 绝技系统（M3，09 §绝技自动调度）：施法者按内部冷却自动释放绝技。
  * 词条加成（伤害/范围/冷却）在此统一作用于所有绝技，与卡牌解耦。
- * 已实装：火油弹（朝最近敌人范围爆炸）、神火天降（向随机敌人周期天降数发）。
+ * 已实装：火油弹、神火天降（焚烧）、雷火连环（链电·雷殛）。
  */
 export const AbilitySystem: System = {
   name: 'AbilitySystem',
@@ -25,6 +47,7 @@ export const AbilitySystem: System = {
         if (ab.timer > 0) continue;
         if (ab.id === 'fireBomb') fireBomb(ctx, ab, origin, mult);
         else if (ab.id === 'skyfire') skyfire(ctx, ab, origin, mult);
+        else if (ab.id === 'chainLightning') chainLightning(ctx, ab, origin, mult);
       }
     }
   },
@@ -51,11 +74,7 @@ function explode(
     const dx = e.transform!.position.x - x;
     const dy = e.transform!.position.y - y;
     if (dx * dx + dy * dy > r2) continue;
-    e.health!.current -= damage;
-    if (e.hitFlash) e.hitFlash.timer = e.hitFlash.duration;
-    if (!e.status) ctx.world.addComponent(e, 'status', {});
-    applyStatus(e.status!, 'burn', burnStacks, burnDuration);
-    ctx.state.hits.push({ x: e.transform!.position.x, y: e.transform!.position.y, crit: false });
+    damageEnemy(ctx, e, damage, { kind: 'burn', stacks: burnStacks, duration: burnDuration });
   }
   ctx.state.blasts.push({ x, y, radius });
 }
@@ -113,5 +132,64 @@ function skyfire(ctx: SimContext, ab: AbilityState, origin: { x: number; y: numb
     const pick = candidates[rng.int(0, candidates.length - 1)]!;
     const tp = pick.transform!.position;
     explode(ctx, tp.x, tp.y, radius, damage, cfg.burnStacks, cfg.burnDuration);
+  }
+}
+
+/** 离 from 最近、在 maxRange 内、且不在 exclude 内的敌人（雷链下一跳）。 */
+function nearestUnhit(
+  ctx: SimContext,
+  from: { x: number; y: number },
+  maxRange: number,
+  exclude: Set<Entity>,
+): Entity | undefined {
+  let best: Entity | undefined;
+  let bestD2 = maxRange * maxRange;
+  for (const e of ctx.queries.enemies.entities) {
+    if (exclude.has(e)) continue;
+    const dx = e.transform!.position.x - from.x;
+    const dy = e.transform!.position.y - from.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 <= bestD2) {
+      bestD2 = d2;
+      best = e;
+    }
+  }
+  return best;
+}
+
+function chainLightning(
+  ctx: SimContext,
+  ab: AbilityState,
+  origin: { x: number; y: number },
+  m: Mult,
+) {
+  const cfg = BALANCE.abilities.chainLightning;
+  const first = nearestEnemy(ctx, origin, cfg.targetRange);
+  if (!first) {
+    ab.timer = cfg.retry;
+    return;
+  }
+  ab.timer = cfg.cooldown / m.cdr;
+  const lv = ab.level;
+  const jumps = cfg.jumps + cfg.perLevel.jumps * (lv - 1);
+  const headDamage = (cfg.damage + cfg.perLevel.damage * (lv - 1)) * m.dmg;
+  const decay = Math.max(0, cfg.decay + cfg.perLevel.decay * (lv - 1));
+
+  const hit = new Set<Entity>();
+  let cur: Entity | undefined = first;
+  let prev = origin;
+  for (let j = 0; j < jumps && cur; j++) {
+    const p = cur.transform!.position;
+    // 弹体轨迹（origin→首目标→逐跳），供场景画闪电线段。
+    ctx.state.bolts.push({ x1: prev.x, y1: prev.y, x2: p.x, y2: p.y });
+    const damage = headDamage * Math.pow(1 - decay, j);
+    hit.add(cur);
+    damageEnemy(ctx, cur, damage, {
+      kind: 'shock',
+      stacks: cfg.shockStacks,
+      duration: cfg.shockDuration,
+    });
+    prev = { x: p.x, y: p.y };
+    cur = nearestUnhit(ctx, p, cfg.jumpRange, hit);
   }
 }

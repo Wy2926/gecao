@@ -4,6 +4,7 @@ import { STATUS, type StatusKind } from '@/game/status';
 /**
  * 异常状态结算（M3）：按 tick 推进每个实体的状态。
  * - 焚烧（burn）：每 tick 按层数造成伤害（致死交给 DeathSystem 统一清理 + 掉落经验球）。
+ * - 雷殛（shock）：无 DoT，仅按层数放大受到的伤害（由各伤害源读取 incomingDamageFactor）。
  * - 持续时间归零则移除该状态；状态全空则摘除组件。
  */
 export const StatusSystem: System = {
@@ -20,7 +21,7 @@ export const StatusSystem: System = {
         st.duration -= dt;
         st.tickTimer -= dt;
         while (st.tickTimer <= 0) {
-          if (key === 'burn') e.health!.current -= def.damagePerStackPerTick * st.stacks;
+          if (def.damagePerStackPerTick) e.health!.current -= def.damagePerStackPerTick * st.stacks;
           st.tickTimer += def.tickInterval;
         }
         if (st.duration <= 0) delete ctrl[key];

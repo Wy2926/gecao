@@ -34,6 +34,9 @@ export const zhCN = {
   'card.fireBomb.desc': '获得/强化绝技：投掷火油弹，落点范围爆炸并点燃敌人',
   'card.skyfire.name': '神火天降',
   'card.skyfire.desc': '获得/强化绝技：周期向随机敌人天降数发火球，爆炸点燃',
+  'card.chainLightning.name': '雷火连环',
+  'card.chainLightning.desc':
+    '获得/强化绝技：雷球在敌群间连锁弹跳，每跳叠雷殛（受伤加深），伤害逐跳衰减',
 } as const;
 
 export type MessageKey = keyof typeof zhCN;
