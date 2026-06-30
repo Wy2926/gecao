@@ -1,7 +1,16 @@
 import Phaser from 'phaser';
 import { Simulation } from '@/game/simulation';
 import { KeyboardInputSource } from '@/input/keyboard';
-import { ASSETS, getSprite, getCharacter, animKey, type CharacterAsset } from '@/assets/registry';
+import {
+  ASSETS,
+  getSprite,
+  getCharacter,
+  getEffect,
+  animKey,
+  effectAnimKey,
+  type CharacterAsset,
+} from '@/assets/registry';
+import type { StatusKind } from '@/game/status';
 import { BALANCE } from '@/game/balance';
 import { t } from '@/i18n';
 import type { MessageKey } from '@/i18n/locales/zh-CN';
@@ -19,7 +28,23 @@ export class GameScene extends Phaser.Scene {
   private input$!: KeyboardInputSource;
 
   private sprites = new Map<Entity, Phaser.GameObjects.Image | Phaser.GameObjects.Sprite>();
-  private animState = new Map<Entity, { clip: string; faceLeft: boolean; attack: number }>();
+  private animState = new Map<
+    Entity,
+    { clip: string; faceLeft: boolean; attack: number; hit: number; prevFlash: number }
+  >();
+  /** 角色最近一帧的元信息，用于实体被移除（死亡）时在原地补播 death 帧。 */
+  private charMeta = new Map<
+    Entity,
+    { key: string; x: number; y: number; faceLeft: boolean; w: number; h: number }
+  >();
+  /** 异常覆盖序列帧 + 状态图标精灵（随实体跟随，状态消失即销毁）。 */
+  private statusFx = new Map<
+    Entity,
+    Partial<
+      Record<StatusKind, { overlay: Phaser.GameObjects.Sprite; icon: Phaser.GameObjects.Image }>
+    >
+  >();
+  private playerDeathPlayed = false;
   private swingGfx!: Phaser.GameObjects.Graphics;
 
   private hpBarFill!: Phaser.GameObjects.Rectangle;
@@ -53,6 +78,12 @@ export class GameScene extends Phaser.Scene {
             frameHeight: clip.frameHeight,
           });
         }
+      }
+      if (a.kind === 'effect') {
+        this.load.spritesheet(effectAnimKey(a.key), a.texturePath, {
+          frameWidth: a.frameWidth,
+          frameHeight: a.frameHeight,
+        });
       }
     }
   }
@@ -106,21 +137,53 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** 为所有角色素材注册帧动画（动作名 → Phaser 动画）。 */
+  /** 为所有角色/特效素材注册帧动画（动作名 → Phaser 动画）。 */
   private registerAnimations(): void {
     for (const a of ASSETS) {
-      if (a.kind !== 'character') continue;
-      for (const clip of a.clips) {
-        const key = animKey(a.key, clip.name);
+      if (a.kind === 'character') {
+        for (const clip of a.clips) {
+          const key = animKey(a.key, clip.name);
+          if (this.anims.exists(key)) continue;
+          this.anims.create({
+            key,
+            frames: this.anims.generateFrameNumbers(key, { start: 0, end: clip.frameCount - 1 }),
+            frameRate: clip.frameRate,
+            repeat: clip.loop ? -1 : 0,
+          });
+        }
+      }
+      if (a.kind === 'effect') {
+        const key = effectAnimKey(a.key);
         if (this.anims.exists(key)) continue;
         this.anims.create({
           key,
-          frames: this.anims.generateFrameNumbers(key, { start: 0, end: clip.frameCount - 1 }),
-          frameRate: clip.frameRate,
-          repeat: clip.loop ? -1 : 0,
+          frames: this.anims.generateFrameNumbers(key, { start: 0, end: a.frameCount - 1 }),
+          frameRate: a.frameRate,
+          repeat: a.loop ? -1 : 0,
         });
       }
     }
+  }
+
+  /**
+   * 播放一段一次性像素帧特效（刀光/火花/爆炸/雷击），播完自动销毁。
+   * 纯表现：不读写任何逻辑状态。
+   */
+  private playEffect(
+    key: string,
+    x: number,
+    y: number,
+    opts?: { rotation?: number; displaySize?: number; depth?: number; additive?: boolean },
+  ): void {
+    const fx = getEffect(key);
+    if (!fx || !this.anims.exists(effectAnimKey(key))) return;
+    const s = this.add.sprite(x, y, effectAnimKey(key)).setDepth(opts?.depth ?? 6);
+    const ds = opts?.displaySize ?? fx.displaySize;
+    s.setDisplaySize(ds, ds);
+    if (opts?.rotation !== undefined) s.setRotation(opts.rotation);
+    if (opts?.additive) s.setBlendMode(Phaser.BlendModes.ADD);
+    s.play(effectAnimKey(key));
+    s.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => s.destroy());
   }
 
   /** 创建多动作角色精灵：默认播放第一段（待机）。 */
@@ -151,10 +214,11 @@ export class GameScene extends Phaser.Scene {
 
       let st = this.animState.get(e);
       if (!st) {
-        st = { clip: '', faceLeft: false, attack: 0 };
+        st = { clip: '', faceLeft: false, attack: 0, hit: 0, prevFlash: 0 };
         this.animState.set(e, st);
       }
       st.attack = Math.max(0, st.attack - dt);
+      st.hit = Math.max(0, st.hit - dt);
 
       const clips = character.clips;
       const has = (name: string): boolean => clips.some((c) => c.name === name);
@@ -162,7 +226,19 @@ export class GameScene extends Phaser.Scene {
       const moving = !!v && Math.hypot(v.x, v.y) > 1;
       if (v && Math.abs(v.x) > 5) st.faceLeft = v.x < 0;
 
-      if (e.player && swung && has('attack')) {
+      // 受击：hitFlash 计时器从 0 跳到峰值即为「本帧新挨打」→ 播一次 hit 顿挫帧。
+      const flash = e.hitFlash?.timer ?? 0;
+      const newlyHit = flash > st.prevFlash + 1e-4;
+      st.prevFlash = flash;
+      if (newlyHit && has('hit') && st.hit <= 0) {
+        const hc = clips.find((c) => c.name === 'hit')!;
+        st.hit = hc.frameCount / hc.frameRate;
+        st.attack = 0;
+        sprite.play(animKey(character.key, 'hit'), true);
+        st.clip = 'hit';
+      }
+
+      if (e.player && swung && has('attack') && st.hit <= 0) {
         st.faceLeft = Math.cos(swingAngle) < 0;
         const ac = clips.find((c) => c.name === 'attack')!;
         st.attack = ac.frameCount / ac.frameRate;
@@ -170,7 +246,7 @@ export class GameScene extends Phaser.Scene {
         st.clip = 'attack';
       }
 
-      if (st.attack <= 0) {
+      if (st.attack <= 0 && st.hit <= 0) {
         let want = moving && has('walk') ? 'walk' : 'idle';
         if (!has(want)) want = clips[0].name;
         if (st.clip !== want) {
@@ -180,6 +256,16 @@ export class GameScene extends Phaser.Scene {
       }
 
       sprite.setFlipX(st.faceLeft);
+
+      // 记录元信息：实体被移除（死亡）时用于在原地补播 death 帧。
+      this.charMeta.set(e, {
+        key: character.key,
+        x: sprite.x,
+        y: sprite.y,
+        faceLeft: st.faceLeft,
+        w: character.width,
+        h: character.height,
+      });
     }
   }
 
@@ -240,72 +326,150 @@ export class GameScene extends Phaser.Scene {
       else if (e.status?.burn) sprite.setTint(0xff7a33);
       else if (e.status?.shock) sprite.setTint(0x9a5ad0);
       else sprite.clearTint();
+
+      // 异常覆盖序列帧 + 状态图标，随实体跟随。
+      this.syncStatusFx(e, sprite);
     }
     for (const [e, sprite] of this.sprites) {
       if (!seen.has(e)) {
+        // 角色实体被移除（仅死亡会移除）→ 在原地补播一次 death 帧。
+        this.spawnDeathFx(e);
         sprite.destroy();
         this.sprites.delete(e);
         this.animState.delete(e);
+        this.charMeta.delete(e);
+        this.clearStatusFx(e);
       }
     }
+  }
+
+  /** 死亡补帧：实体被移除时用上一帧元信息在原地播放 death 序列帧。 */
+  private spawnDeathFx(e: Entity): void {
+    const meta = this.charMeta.get(e);
+    if (!meta) return;
+    const character = getCharacter(meta.key);
+    if (!character) return;
+    const death = character.clips.find((c) => c.name === 'death');
+    if (!death) return;
+    const s = this.add.sprite(meta.x, meta.y, animKey(meta.key, 'death')).setDepth(0);
+    s.setDisplaySize(meta.w, meta.h);
+    s.setFlipX(meta.faceLeft);
+    s.play(animKey(meta.key, 'death'));
+    s.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
+      // 尸体停留片刻再淡出，强化「割草」战果反馈。
+      this.tweens.add({
+        targets: s,
+        alpha: 0,
+        delay: 500,
+        duration: 400,
+        onComplete: () => s.destroy(),
+      });
+    });
+  }
+
+  /** 维护单个实体的异常覆盖特效与状态图标（按 burn/shock 增删）。 */
+  private syncStatusFx(
+    e: Entity,
+    sprite: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite,
+  ): void {
+    const kinds: { kind: StatusKind; fx: string; icon: string }[] = [
+      { kind: 'burn', fx: 'fx.burn', icon: 'icon.burn' },
+      { kind: 'shock', fx: 'fx.shock', icon: 'icon.shock' },
+    ];
+    let bucket = this.statusFx.get(e);
+    let iconRow = 0;
+    for (const { kind, fx, icon } of kinds) {
+      const active = !!e.status?.[kind];
+      const existing = bucket?.[kind];
+      if (active && !existing) {
+        if (!this.anims.exists(effectAnimKey(fx))) continue;
+        const overlay = this.add.sprite(sprite.x, sprite.y, effectAnimKey(fx)).setDepth(3);
+        const def = getEffect(fx)!;
+        overlay.setDisplaySize(def.displaySize, def.displaySize);
+        overlay.play(effectAnimKey(fx));
+        const ic = this.add.image(sprite.x, sprite.y, icon).setDepth(8);
+        if (this.textures.exists(icon)) ic.setDisplaySize(16, 16);
+        if (!bucket) {
+          bucket = {};
+          this.statusFx.set(e, bucket);
+        }
+        bucket[kind] = { overlay, icon: ic };
+      } else if (!active && existing) {
+        existing.overlay.destroy();
+        existing.icon.destroy();
+        delete bucket![kind];
+      }
+    }
+    // 跟随定位：覆盖居中，图标在头顶按行堆叠。
+    bucket = this.statusFx.get(e);
+    if (bucket) {
+      for (const { kind } of kinds) {
+        const cur = bucket[kind];
+        if (!cur) continue;
+        cur.overlay.setPosition(sprite.x, sprite.y - sprite.displayHeight * 0.1);
+        cur.icon.setPosition(sprite.x + iconRow * 18 - 9, sprite.y - sprite.displayHeight * 0.65);
+        iconRow++;
+      }
+    }
+  }
+
+  private clearStatusFx(e: Entity): void {
+    const bucket = this.statusFx.get(e);
+    if (!bucket) return;
+    for (const k of Object.keys(bucket) as StatusKind[]) {
+      bucket[k]?.overlay.destroy();
+      bucket[k]?.icon.destroy();
+    }
+    this.statusFx.delete(e);
   }
 
   /** 消费本帧横扫/命中表现缓冲，播放扇形挥砍与命中火花。 */
   private drawCombatFx(): void {
     const state = this.sim.ctx.state;
+    const hasSlash = this.anims.exists(effectAnimKey('fx.slash'));
     for (const s of state.swings) {
-      const gfx = this.add.graphics().setDepth(5);
-      gfx.fillStyle(0xfff2c4, 0.32);
-      gfx.slice(s.x, s.y, s.range, s.angle - s.halfArc, s.angle + s.halfArc, false);
-      gfx.fillPath();
-      gfx.lineStyle(2, 0xffffff, 0.6);
-      gfx.beginPath();
-      gfx.arc(s.x, s.y, s.range, s.angle - s.halfArc, s.angle + s.halfArc, false);
-      gfx.strokePath();
-      this.tweens.add({
-        targets: gfx,
-        alpha: 0,
-        duration: 160,
-        onComplete: () => gfx.destroy(),
-      });
+      if (hasSlash) {
+        // 像素刀光：贴图新月开口朝 +x，旋转到挥砍方向，位于身前。
+        const fwd = s.range * 0.55;
+        this.playEffect('fx.slash', s.x + Math.cos(s.angle) * fwd, s.y + Math.sin(s.angle) * fwd, {
+          rotation: s.angle,
+          displaySize: s.range * 2.1,
+          depth: 5,
+          additive: true,
+        });
+      } else {
+        const gfx = this.add.graphics().setDepth(5);
+        gfx.fillStyle(0xfff2c4, 0.32);
+        gfx.slice(s.x, s.y, s.range, s.angle - s.halfArc, s.angle + s.halfArc, false);
+        gfx.fillPath();
+        this.tweens.add({ targets: gfx, alpha: 0, duration: 160, onComplete: () => gfx.destroy() });
+      }
     }
     for (const h of state.hits) {
-      const spark = this.add
-        .circle(h.x, h.y, h.crit ? 10 : 6, h.crit ? 0xff5a3c : 0xffe08a, 0.95)
-        .setDepth(6);
-      this.tweens.add({
-        targets: spark,
-        alpha: 0,
-        scale: h.crit ? 2.6 : 2,
-        duration: h.crit ? 220 : 180,
-        onComplete: () => spark.destroy(),
+      // 像素命中火花：暴击更大更亮，叠加发光。
+      this.playEffect('fx.spark', h.x, h.y, {
+        displaySize: h.crit ? 88 : 48,
+        depth: 7,
+        additive: true,
       });
     }
     for (const b of state.blasts) {
-      const ring = this.add.circle(b.x, b.y, b.radius, 0xff7a33, 0.28).setDepth(4);
-      ring.setStrokeStyle(3, 0xffd24a, 0.9);
-      ring.setScale(0.4);
-      this.tweens.add({
-        targets: ring,
-        alpha: 0,
-        scale: 1,
-        duration: 320,
-        ease: 'Quad.easeOut',
-        onComplete: () => ring.destroy(),
-      });
+      // 像素火爆：贴图按爆炸半径缩放。
+      this.playEffect('fx.explosion', b.x, b.y, { displaySize: b.radius * 2.4, depth: 4 });
     }
     for (const bolt of state.bolts) {
+      // 雷链连接线（程序化，连接相邻目标）+ 命中点像素雷击爆。
       const gfx = this.add.graphics().setDepth(6);
       gfx.lineStyle(3, 0xc89aff, 0.95);
       gfx.beginPath();
       gfx.moveTo(bolt.x1, bolt.y1);
       gfx.lineTo(bolt.x2, bolt.y2);
       gfx.strokePath();
-      this.tweens.add({
-        targets: gfx,
-        alpha: 0,
-        duration: 200,
-        onComplete: () => gfx.destroy(),
+      this.tweens.add({ targets: gfx, alpha: 0, duration: 200, onComplete: () => gfx.destroy() });
+      this.playEffect('fx.shockhit', bolt.x2, bolt.y2, {
+        displaySize: 72,
+        depth: 7,
+        additive: true,
       });
     }
     state.swings.length = 0;
@@ -405,20 +569,30 @@ export class GameScene extends Phaser.Scene {
           .setScrollFactor(0)
           .setDepth(100)
           .setStrokeStyle(2, color);
-        this.add
-          .text(
-            x + size / 2,
-            y0 + size / 2,
-            GameScene.wrapCjk(t(`card.${ab.id}.name` as MessageKey), 2),
-            {
-              fontSize: '12px',
-              color: '#f3ecd9',
-              align: 'center',
-            },
-          )
-          .setOrigin(0.5)
-          .setScrollFactor(0)
-          .setDepth(101);
+        const iconKey = `icon.${ab.id}`;
+        if (this.textures.exists(iconKey)) {
+          // 绝技像素图标（火油弹/神火天降/雷火连环）。
+          this.add
+            .image(x + size / 2, y0 + size / 2, iconKey)
+            .setDisplaySize(size - 4, size - 4)
+            .setScrollFactor(0)
+            .setDepth(101);
+        } else {
+          this.add
+            .text(
+              x + size / 2,
+              y0 + size / 2,
+              GameScene.wrapCjk(t(`card.${ab.id}.name` as MessageKey), 2),
+              {
+                fontSize: '12px',
+                color: '#f3ecd9',
+                align: 'center',
+              },
+            )
+            .setOrigin(0.5)
+            .setScrollFactor(0)
+            .setDepth(101);
+        }
         const cd = this.add
           .rectangle(x, y0, size, 0, 0x000000, 0.6)
           .setOrigin(0, 0)
@@ -583,6 +757,16 @@ export class GameScene extends Phaser.Scene {
 
   private showGameOver(): void {
     this.updateHud();
+    // 玩家死亡帧动画：在玩家精灵上播一次 death（仅一次）。
+    if (!this.playerDeathPlayed) {
+      this.playerDeathPlayed = true;
+      const ps = this.sprites.get(this.sim.player) as Phaser.GameObjects.Sprite | undefined;
+      const character = getCharacter(this.sim.player.renderable?.spriteKey ?? '');
+      if (ps && character?.clips.some((c) => c.name === 'death')) {
+        ps.clearTint();
+        ps.play(animKey(character.key, 'death'));
+      }
+    }
     const w = this.scale.width;
     const h = this.scale.height;
     const bg = this.add.rectangle(0, 0, w, h, 0x000000, 0.55).setOrigin(0).setScrollFactor(0);
@@ -601,9 +785,13 @@ export class GameScene extends Phaser.Scene {
     this.overlay?.destroy();
     this.overlay = undefined;
     this.hideDraft();
+    for (const e of this.statusFx.keys()) this.clearStatusFx(e);
+    this.statusFx.clear();
     for (const sprite of this.sprites.values()) sprite.destroy();
     this.sprites.clear();
     this.animState.clear();
+    this.charMeta.clear();
+    this.playerDeathPlayed = false;
     this.swingGfx.clear();
 
     this.sim = new Simulation({ seed: SEED });
