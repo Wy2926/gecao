@@ -238,6 +238,7 @@ export class GameScene extends Phaser.Scene {
       const flashing = !!e.hitFlash && e.hitFlash.timer > 0;
       if (flashing) sprite.setTintFill(0xffffff);
       else if (e.status?.burn) sprite.setTint(0xff7a33);
+      else if (e.status?.shock) sprite.setTint(0x9a5ad0);
       else sprite.clearTint();
     }
     for (const [e, sprite] of this.sprites) {
@@ -293,9 +294,24 @@ export class GameScene extends Phaser.Scene {
         onComplete: () => ring.destroy(),
       });
     }
+    for (const bolt of state.bolts) {
+      const gfx = this.add.graphics().setDepth(6);
+      gfx.lineStyle(3, 0xc89aff, 0.95);
+      gfx.beginPath();
+      gfx.moveTo(bolt.x1, bolt.y1);
+      gfx.lineTo(bolt.x2, bolt.y2);
+      gfx.strokePath();
+      this.tweens.add({
+        targets: gfx,
+        alpha: 0,
+        duration: 200,
+        onComplete: () => gfx.destroy(),
+      });
+    }
     state.swings.length = 0;
     state.hits.length = 0;
     state.blasts.length = 0;
+    state.bolts.length = 0;
   }
 
   private buildHud(): void {

@@ -63,6 +63,30 @@ export const BALANCE = {
       /** 每级加成。 */
       perLevel: { damage: 5, meteors: 1 },
     },
+    /**
+     * 雷火连环（链电）：发射雷球在敌群间连锁弹跳，每跳叠【雷殛】、伤害逐跳衰减。
+     * 数值依 05-active-skills-leveling.md §12（CD 4→2.8s、弹跳 3→8、衰减 15%→5%）。
+     */
+    chainLightning: {
+      cooldown: 4,
+      /** 基础弹跳次数（命中敌人数）。 */
+      jumps: 3,
+      /** 首段伤害。 */
+      damage: 16,
+      /** 每跳伤害衰减比例。 */
+      decay: 0.15,
+      /** 相邻弹跳的最大搜索半径。 */
+      jumpRange: 150,
+      /** 命中施加的雷殛层数与持续（秒）。 */
+      shockStacks: 1,
+      shockDuration: 3,
+      /** 首个目标的最大搜索半径。 */
+      targetRange: 440,
+      /** 无目标时的重试间隔。 */
+      retry: 0.25,
+      /** 每级加成（弹跳 +1、首段伤害 +、衰减 −）。 */
+      perLevel: { jumps: 1, damage: 6, decay: -0.025 },
+    },
   },
 
   wokou: {

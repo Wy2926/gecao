@@ -1,5 +1,6 @@
 import type { System, SimContext } from './types';
 import { angleDelta } from '@/core/math';
+import { incomingDamageFactor } from '@/game/status';
 
 /**
  * 戚家刀自动横扫：冷却到了朝最近敌人方向挥出扇形，对扇形内敌人造成伤害+击退，
@@ -49,7 +50,9 @@ export const AutoAttackSystem: System = {
         if (angleDelta(ang, facing) > atk.halfArc) continue;
 
         const crit = combat.chance(atk.critChance);
-        e.health!.current -= crit ? atk.damage * atk.critMult : atk.damage;
+        // 雷殛等易伤状态放大命中伤害（受伤 +X%/层）。
+        const base = crit ? atk.damage * atk.critMult : atk.damage;
+        e.health!.current -= base * (e.status ? incomingDamageFactor(e.status) : 1);
         if (e.hitFlash) e.hitFlash.timer = e.hitFlash.duration;
         // 击退：沿命中方向推开。
         if (dist > 0) {

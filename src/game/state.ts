@@ -24,6 +24,14 @@ export interface BlastFx {
   radius: number;
 }
 
+/** 雷链闪电线段表现（一跳一段，场景读取后清空）。 */
+export interface BoltFx {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
 /** 玩家成长进度（经验/等级）。 */
 export interface Progression {
   level: number;
@@ -55,6 +63,8 @@ export interface GameState {
   hits: HitFx[];
   /** 本帧绝技爆炸，用于范围特效。 */
   blasts: BlastFx[];
+  /** 本帧雷链弹跳线段，用于闪电特效。 */
+  bolts: BoltFx[];
 }
 
 /** 升到 `level` 级（即从 level 升到 level+1）所需经验。 */
@@ -72,5 +82,6 @@ export function createGameState(): GameState {
     swings: [],
     hits: [],
     blasts: [],
+    bolts: [],
   };
 }
