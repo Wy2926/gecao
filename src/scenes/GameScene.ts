@@ -238,6 +238,7 @@ export class GameScene extends Phaser.Scene {
       const flashing = !!e.hitFlash && e.hitFlash.timer > 0;
       if (flashing) sprite.setTintFill(0xffffff);
       else if (e.status?.burn) sprite.setTint(0xff7a33);
+      else if (e.status?.frost) sprite.setTint(0x6fb7ff);
       else sprite.clearTint();
     }
     for (const [e, sprite] of this.sprites) {
@@ -281,8 +282,8 @@ export class GameScene extends Phaser.Scene {
       });
     }
     for (const b of state.blasts) {
-      const ring = this.add.circle(b.x, b.y, b.radius, 0xff7a33, 0.28).setDepth(4);
-      ring.setStrokeStyle(3, 0xffd24a, 0.9);
+      const ring = this.add.circle(b.x, b.y, b.radius, b.color, 0.28).setDepth(4);
+      ring.setStrokeStyle(3, b.color, 0.95);
       ring.setScale(0.4);
       this.tweens.add({
         targets: ring,

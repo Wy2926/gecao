@@ -22,6 +22,8 @@ export interface BlastFx {
   x: number;
   y: number;
   radius: number;
+  /** 爆发主题色（火=橙、冰=青…）。 */
+  color: number;
 }
 
 /** 玩家成长进度（经验/等级）。 */

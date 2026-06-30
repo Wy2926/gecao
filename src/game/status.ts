@@ -5,19 +5,24 @@
  * （如焚烧每 tick 按层数造成伤害）。绝技/联动只调用 `applyStatus`，与结算解耦。
  */
 
-export type StatusKind = 'burn';
+export type StatusKind = 'burn' | 'frost';
 
 export interface StatusDef {
   /** 最大叠加层数。 */
   maxStacks: number;
   /** 结算间隔（秒）。 */
   tickInterval: number;
-  /** 每层每 tick 造成的伤害（仅 DoT 类）。 */
-  damagePerStackPerTick: number;
+  /** 每层每 tick 造成的伤害（仅 DoT 类，无则不掉血）。 */
+  damagePerStackPerTick?: number;
+  /** 减速类：每层降低的移动速度比例（无则不减速）。 */
+  slowPerStack?: number;
+  /** 减速下限：移动速度不低于基础值的此比例。 */
+  minSpeedFactor?: number;
 }
 
 export const STATUS: Record<StatusKind, StatusDef> = {
   burn: { maxStacks: 8, tickInterval: 0.5, damagePerStackPerTick: 3 },
+  frost: { maxStacks: 5, tickInterval: 0.5, slowPerStack: 0.12, minSpeedFactor: 0.4 },
 };
 
 export interface StatusStack {
@@ -50,4 +55,17 @@ export function applyStatus(
       tickTimer: def.tickInterval,
     };
   }
+}
+
+/** 综合减速类状态算出移动速度因子（1=不减速），供 AI/移动按需缩放。 */
+export function speedFactor(controller: StatusController): number {
+  let factor = 1;
+  for (const key of Object.keys(controller) as StatusKind[]) {
+    const st = controller[key];
+    const def = STATUS[key];
+    if (!st || !def.slowPerStack) continue;
+    const slowed = 1 - def.slowPerStack * st.stacks;
+    factor *= Math.max(def.minSpeedFactor ?? 0, slowed);
+  }
+  return factor;
 }

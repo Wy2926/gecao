@@ -56,7 +56,7 @@ describe('StatusSystem (焚烧 DoT)', () => {
 
     // tickInterval 0.5：推进 0.5s 触发一次结算 = 4 层 * 3 = 12 伤害。
     StatusSystem.update(ctx, 0.5);
-    expect(e.health!.current).toBeCloseTo(100 - 4 * STATUS.burn.damagePerStackPerTick);
+    expect(e.health!.current).toBeCloseTo(100 - 4 * STATUS.burn.damagePerStackPerTick!);
 
     // 推进超过剩余持续 → 再结算几次后状态被移除。
     StatusSystem.update(ctx, 1);

@@ -95,6 +95,7 @@ export const CARD_POOL: readonly CardDef[] = [
   { id: 'drill', kind: 'term', stat: 'cdrPct', unit: 'pct', basePerStack: 0.08, color: 0x5a9ad0 },
   { id: 'fireBomb', kind: 'ability', abilityId: 'fireBomb', color: 0xff7a33 },
   { id: 'skyfire', kind: 'ability', abilityId: 'skyfire', color: 0xff5a3c },
+  { id: 'frostNova', kind: 'ability', abilityId: 'frostNova', color: 0x5ad0ff },
 ] as const;
 
 /** 一个抽卡选项 = 卡 + 本次随机到的稀有度 + 实际数值。 */

@@ -1,6 +1,7 @@
 import type { System, SimContext } from './types';
 import { BALANCE } from '@/game/balance';
 import { normalize } from '@/core/math';
+import { speedFactor } from '@/game/status';
 
 /**
  * 敌人 AI：朝玩家追击 + 同类分离力（boids separation）防堆叠（A 档）。
@@ -37,7 +38,8 @@ export const EnemyAISystem: System = {
         }
       }
 
-      const speed = e.ai!.speed;
+      // 霜寒等减速状态按层数缩放追击速度（分离力不受影响，避免叠堆）。
+      const speed = e.ai!.speed * (e.status ? speedFactor(e.status) : 1);
       e.velocity!.x = toTarget.x * speed + sx * sep;
       e.velocity!.y = toTarget.y * speed + sy * sep;
       e.transform!.rotation = Math.atan2(toTarget.y, toTarget.x);

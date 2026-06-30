@@ -63,6 +63,21 @@ export const BALANCE = {
       /** 每级加成。 */
       perLevel: { damage: 5, meteors: 1 },
     },
+    /** 玄冰咒：以玩家为中心爆发冰环，范围内敌人受伤 + 霜寒减速。 */
+    frostNova: {
+      cooldown: 3.2,
+      radius: 150,
+      damage: 6,
+      /** 命中施加的霜寒层数与持续（秒）。 */
+      frostStacks: 2,
+      frostDuration: 2.5,
+      /** 触发所需的最近敌人搜索半径（与爆发半径一致：圈内有敌就放）。 */
+      targetRange: 150,
+      /** 无目标时的重试间隔。 */
+      retry: 0.25,
+      /** 每级加成。 */
+      perLevel: { damage: 3, radius: 12 },
+    },
   },
 
   wokou: {
